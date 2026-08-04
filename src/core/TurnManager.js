@@ -17,6 +17,7 @@ export class TurnManager {
     this.activeWorm = null;
     this.timeLeft = CFG.TURN_TIME;
     this.resolveTimer = 0;
+    this.flyTimer = 0;
     this.weaponIndex = 0;
     this.teamCursor = new Array(CFG.TEAMS).fill(0);
     this.turnNumber = 0;
@@ -70,8 +71,8 @@ export class TurnManager {
     this.scene.resetAim();
 
     for (const w of this.scene.worms) w.setActiveMarker(w === worm);
-    this.scene.setCameraManual(false);
     this.scene.followTarget = worm;
+    this.scene.frameTurn(worm);
     this.scene.fx.banner(
       `${TEAM_NAMES[team]} — ход ${this.turnNumber}`,
       hex(TEAM_COLORS[team]), 1200,
@@ -95,6 +96,7 @@ export class TurnManager {
   /** Вызывается сценой сразу после выстрела: ход уже не вернуть. */
   onFired() {
     this.state = STATE.FLYING;
+    this.flyTimer = 0;
     this.activeWorm?.setActiveMarker(false);
     this.scene.cancelCharge();
   }
@@ -130,6 +132,13 @@ export class TurnManager {
       }
 
       case STATE.FLYING: {
+        this.flyTimer += dt;
+        // Снаряды сами себя ограничивают по времени жизни, но если что-то
+        // всё же застряло — ход всё равно должен сдвинуться.
+        if (this.flyTimer >= CFG.FLY_TIMEOUT) {
+          for (const p of scene.projectiles) p.destroy();
+          scene.projectiles.length = 0;
+        }
         if (scene.projectiles.length === 0) {
           this.state = STATE.RESOLVE;
           this.resolveTimer = 0;

@@ -66,6 +66,13 @@ export class Projectile {
       if (this.fuseLeft <= 0) { this.detonate(this.x, this.y); return; }
     }
 
+    // Страховка: снаряд без фитиля и с отскоком мог бы прыгать вечно,
+    // и ход не сдвинулся бы никогда. Через PROJECTILE_MAX_LIFE подрываем.
+    if (this.age > CFG.PROJECTILE_MAX_LIFE) {
+      this.detonate(this.x, this.y);
+      return;
+    }
+
     const sdt = dt / CFG.SUBSTEPS;
     for (let i = 0; i < CFG.SUBSTEPS && this.alive; i++) this._substep(sdt);
 

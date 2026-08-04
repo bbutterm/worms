@@ -105,6 +105,10 @@ export class Hud {
     this._makeHoldButton(1052, CFG.VIEW_H - 76, 60, 60, '▼', 'aimDown');
     this._makeFireButton(1192, CFG.VIEW_H - 80, 54);
 
+    // Возврат камеры: без него, уведя её посмотреть на противника,
+    // игрок остаётся без прицела и без способа вернуться
+    this._makeTapButton(96, CFG.VIEW_H - 152, 64, 64, '⌖', () => scene.focusCamera());
+
     this.hint = fix(scene.add.text(640, CFG.VIEW_H - 72,
       'держи ОГОНЬ — набор силы, отпусти — выстрел · ▲▼ угол\n'
       + 'можно и свайпом по бойцу · тяни фон — камера', {
@@ -135,6 +139,26 @@ export class Hud {
       if (action !== 'jumpQueued') s.moveInput[action] = false;
       rect.setFillStyle(0x121a2c, 0.75);
     };
+    rect.on('pointerup', release);
+    rect.on('pointerout', release);
+
+    this.moveButtons.push({ rect, release });
+    this.uiRects.push({ x, y, w, h });
+  }
+
+  /** Обычная кнопка: срабатывает по нажатию, удержание ничего не копит. */
+  _makeTapButton(x, y, w, h, glyph, onTap) {
+    const s = this.scene;
+    const rect = s.add.rectangle(x, y, w, h, 0x121a2c, 0.75).setOrigin(0, 0)
+      .setScrollFactor(0).setDepth(DEPTH.HUD);
+    rect.setStrokeStyle(2, 0x2f3d5c);
+    rect.setInteractive({ useHandCursor: true });
+    s.add.text(x + w / 2, y + h / 2, glyph, {
+      fontFamily: 'monospace', fontSize: '24px', color: '#cfd8e8',
+    }).setOrigin(0.5).setScrollFactor(0).setDepth(DEPTH.HUD + 1);
+
+    rect.on('pointerdown', () => { rect.setFillStyle(0x1e2a45, 0.9); onTap(); });
+    const release = () => rect.setFillStyle(0x121a2c, 0.75);
     rect.on('pointerup', release);
     rect.on('pointerout', release);
 

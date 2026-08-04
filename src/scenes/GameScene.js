@@ -8,6 +8,7 @@ import { Worm } from '../entities/Worm.js';
 import { Hud } from '../ui/Hud.js';
 import { Fx } from '../ui/Fx.js';
 import { AimController } from '../ui/AimController.js';
+import { OffscreenMarkers } from '../ui/OffscreenMarkers.js';
 
 export default class GameScene extends Phaser.Scene {
   constructor() { super('Game'); }
@@ -19,6 +20,7 @@ export default class GameScene extends Phaser.Scene {
     this.projectiles = [];
     this.followTarget = null;
     this.cameraManual = false;
+    this.camIdle = 0;
     this.moveInput = {
       left: false, right: false, jumpQueued: false,
       aimUp: false, aimDown: false, fire: false,
@@ -42,6 +44,7 @@ export default class GameScene extends Phaser.Scene {
     this.hud = new Hud(this);
     this.turn = new TurnManager(this);
     this.aim = new AimController(this);
+    this.offscreen = new OffscreenMarkers(this);
 
     this._spawnWorms();
     this._setupKeyboard();
@@ -255,10 +258,11 @@ export default class GameScene extends Phaser.Scene {
       this.terrain.dirtyChunks.clear();
     }
 
-    this._updateCamera(dt);
+    this._updateCamera(dt, realDt);
     this.aim.update();
     this.turn.update(realDt);
     this.hud.update();
+    this.offscreen.update();
   }
 
   _handleMovement(dt, realDt) {
@@ -342,23 +346,80 @@ export default class GameScene extends Phaser.Scene {
     this.cancelCharge();
   }
 
-  _updateCamera(dt) {
+  _updateCamera(dt, realDt) {
     const cam = this.cameras.main;
-    if (this.cameraManual) return;
 
-    let target = this.followTarget;
-    if (this.turn.state === STATE.FLYING && this.projectiles.length) {
-      target = this.projectiles[0];
-    } else if (this.turn.activeWorm && this.turn.state === STATE.AIM) {
-      target = this.turn.activeWorm;
+    // Камера, уведённая рукой, сама возвращается к бойцу — иначе игрок,
+    // отошедший посмотреть на противника, остаётся без прицела и без
+    // способа вернуться.
+    if (this.cameraManual) {
+      if (this.input.activePointer.isDown) { this.camIdle = 0; return; }
+      this.camIdle += realDt;
+      if (this.camIdle < CFG.CAM_IDLE_RETURN) return;
+      this.cameraManual = false;
     }
+
+    const target = this._cameraTarget();
     if (!target) return;
 
-    const desired = Phaser.Math.Clamp(
-      target.x - CFG.VIEW_W / 2, 0, CFG.WORLD_W - CFG.VIEW_W,
-    );
+    let desired;
+    if (this.turn.state === STATE.FLYING) {
+      desired = target.x - CFG.VIEW_W / 2;   // снаряд держим по центру
+    } else {
+      // За бойцом идём с мёртвой зоной: камера трогается, только когда он
+      // подходит к краю. Иначе она бы сразу съедала кадрирование хода.
+      const sx = target.x - cam.scrollX;
+      const m = CFG.CAM_DEADZONE;
+      if (sx < m) desired = target.x - m;
+      else if (sx > CFG.VIEW_W - m) desired = target.x - (CFG.VIEW_W - m);
+      else return;
+    }
+
+    desired = Phaser.Math.Clamp(desired, 0, CFG.WORLD_W - CFG.VIEW_W);
     const lerp = this.turn.state === STATE.FLYING ? CFG.CAM_LERP_FAST : CFG.CAM_LERP;
     cam.scrollX += (desired - cam.scrollX) * Math.min(1, lerp * dt * 60);
+  }
+
+  /** За кем camera следит сейчас: за снарядом в полёте, иначе за бойцом. */
+  _cameraTarget() {
+    if (this.turn.state === STATE.FLYING && this.projectiles.length) {
+      return this.projectiles[0];
+    }
+    if (this.turn.activeWorm) return this.turn.activeWorm;
+    return this.followTarget;
+  }
+
+  /** Кнопка «к бойцу»: снимает ручной режим и мгновенно наводится на цель. */
+  focusCamera() {
+    this.cameraManual = false;
+    this.camIdle = 0;
+    const target = this._cameraTarget();
+    if (!target) return;
+    this.cameras.main.scrollX = Phaser.Math.Clamp(
+      target.x - CFG.VIEW_W / 2, 0, CFG.WORLD_W - CFG.VIEW_W,
+    );
+  }
+
+  /**
+   * Кадрирование в начале хода: показываем бойца и, если влезает,
+   * ближайшего противника — чтобы было видно, по кому стрелять.
+   */
+  frameTurn(worm) {
+    const enemies = this.worms.filter((w) => w.alive && w.team !== worm.team);
+    let center = worm.x;
+    if (enemies.length) {
+      const near = enemies.reduce((a, b) =>
+        (Math.abs(b.x - worm.x) < Math.abs(a.x - worm.x) ? b : a));
+      // Оба влезают в кадр — центрируем между ними, иначе держим бойца
+      if (Math.abs(near.x - worm.x) < CFG.VIEW_W - 260) {
+        center = (worm.x + near.x) / 2;
+      }
+    }
+    this.cameraManual = false;
+    this.camIdle = 0;
+    this.cameras.main.scrollX = Phaser.Math.Clamp(
+      center - CFG.VIEW_W / 2, 0, CFG.WORLD_W - CFG.VIEW_W,
+    );
   }
 
   // -------------------------------------------------------------- геймплей
@@ -369,7 +430,7 @@ export default class GameScene extends Phaser.Scene {
 
   setWind(v) { this.wind = v; }
 
-  setCameraManual(on) { this.cameraManual = on; }
+  setCameraManual(on) { this.cameraManual = on; this.camIdle = 0; }
 
   /** Выстрел активного бойца. Ход сразу переходит дальше. */
   fireActiveWorm(vx, vy) {
@@ -475,6 +536,7 @@ export default class GameScene extends Phaser.Scene {
 
   _shutdown() {
     this.aim?.destroy();
+    this.offscreen?.destroy();
     this.projectiles = [];
     this.worms = [];
   }

@@ -28,10 +28,33 @@
     color: #ffb4b4; background: #0b1021; text-align: center;
     padding: 24px; line-height: 1.5; font-size: 15px;
   }
+  /* Игра ландшафтная: в портрете канвас 1280x720 ужимается в узкую полоску,
+     поэтому вместо неё показываем просьбу повернуть устройство. */
+  #rotate {
+    position: fixed; inset: 0; display: none; z-index: 10;
+    flex-direction: column; align-items: center; justify-content: center;
+    gap: 18px; background: #0b1021; color: #c3cee0;
+    text-align: center; padding: 24px; line-height: 1.5; font-size: 16px;
+  }
+  #rotate .phone {
+    width: 54px; height: 92px; border: 3px solid #6ecbff; border-radius: 10px;
+    animation: tilt 1.8s ease-in-out infinite;
+  }
+  @keyframes tilt {
+    0%, 40% { transform: rotate(0deg); }
+    60%, 100% { transform: rotate(-90deg); }
+  }
+  @media (orientation: portrait) and (max-width: 900px) {
+    #rotate { display: flex; }
+  }
 </style>
 </head>
 <body>
 <div id="game"></div>
+<div id="rotate">
+  <div class="phone"></div>
+  <div>Поверни телефон горизонтально</div>
+</div>
 <div id="fatal"></div>
 
 <!-- Telegram WebApp SDK: no-op в обычном браузере -->

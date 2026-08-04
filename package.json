@@ -6,6 +6,8 @@
   "type": "module",
   "scripts": {
     "dev": "npx --yes serve -l 5173 .",
-    "start": "npx --yes serve -l 5173 ."
+    "start": "npx --yes serve -l 5173 .",
+    "test": "node tests/run.mjs",
+    "assets": "python3 tools/build_assets.py"
   }
 }
