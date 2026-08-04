@@ -184,8 +184,16 @@ python3 tools/build_assets.py     # нужен pillow
 npx vercel --prod
 ```
 
-Framework preset — «Other», output directory — корень репозитория.
-`vercel.json` уже задаёт кэш-заголовки и `frame-ancestors` для Telegram.
+Framework preset — «Other», build command пустой, output directory — корень
+репозитория. `vercel.json` задаёт кэш-заголовки и `frame-ancestors` для
+Telegram; `.vercelignore` не пускает в деплой `assets/raw/` и `tools/`, так
+что на прод едет около 2 МБ.
+
+Заголовка `X-Frame-Options` там нет намеренно: значения `ALLOWALL` в
+спецификации не существует, а часть браузеров трактует невалидное значение
+как `DENY` — то есть он ломал бы ровно то, что должен разрешать. Встраивание
+регулирует CSP. На нативные вебвью Telegram (телефон, десктоп-клиент) это не
+влияет вовсе — там нет iframe, ограничение касается только Telegram Web.
 
 **Telegram.** Через `@BotFather`: `/newapp` (или кнопка Web App у команды бота),
 указать URL с Vercel. `src/platform/telegram.js` сам вызовет `ready()`,
