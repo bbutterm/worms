@@ -1,16 +1,22 @@
 import { CFG, DEPTH } from '../config.js';
+import { has } from '../core/assets.js';
 
 /**
- * Управление тач/мышью.
+ * Прицеливание и протяжка камеры.
  *
- * • Свайп, начатый рядом с активным бойцом → прицеливание: направление
- *   свайпа задаёт угол, длина — силу. Отпустили = выстрел.
- * • Свайп в стороне → протяжка камеры (карта шире экрана).
+ * Схем две, работают одновременно:
  *
- * Во время прицеливания рисуется пунктирная подсказка — первые
- * CFG.TRAJ_POINTS точек реальной траектории (та же математика, что
- * в Projectile, с учётом ветра и параметров оружия), обрезанная
- * по столкновению с землёй.
+ * 1. Кнопочная (основная, удобна на телефоне): угол крутится кнопками ▲▼
+ *    и хранится в сцене, сила набирается удержанием «Огонь». Здесь эта
+ *    схема только рисуется — прицел на луче от бойца и траектория, пока
+ *    идёт набор силы. Палец при этом лежит в углу экрана и ничего не
+ *    закрывает.
+ * 2. Свайп по бойцу: направление задаёт угол, длина — силу, отпустили =
+ *    выстрел. Быстрее на мыши, но на тач-экране кисть накрывает поле.
+ *
+ * В обоих случаях подсказка — первые CFG.TRAJ_POINTS точек реальной
+ * траектории (та же математика, что в Projectile, с учётом ветра и
+ * параметров оружия), обрезанная по столкновению с землёй.
  */
 export class AimController {
   constructor(scene) {
@@ -80,7 +86,19 @@ export class AimController {
   onUp() {
     if (this.mode === 'aim') {
       const shot = this.computeShot();
-      if (shot) this.scene.fireActiveWorm(shot.vx, shot.vy);
+      if (shot) {
+        // Синхронизируем угол кнопочной схемы со свайпом, иначе после
+        // выстрела свайпом ▲▼ продолжали бы крутить со старого значения
+        const w = this.worm;
+        if (w) {
+          w.facing = shot.vx >= 0 ? 1 : -1;
+          this.scene.aimAngle = Phaser.Math.Clamp(
+            Math.atan2(-shot.vy, Math.abs(shot.vx)),
+            -CFG.AIM_ANGLE_LIMIT, CFG.AIM_ANGLE_LIMIT,
+          );
+        }
+        this.scene.fireActiveWorm(shot.vx, shot.vy);
+      }
     }
     this.mode = null;
     this.dragX = 0; this.dragY = 0;
@@ -115,8 +133,74 @@ export class AimController {
 
   update() {
     this.gfx.clear();
-    if (this.mode !== 'aim' || !this.worm) { this.info.setVisible(false); return; }
+    const w = this.worm;
+    if (!w || !this.scene.canPlayerAct()) {
+      this.info.setVisible(false);
+      if (this.crosshair) this.crosshair.setVisible(false);
+      return;
+    }
 
+    // Свайп имеет приоритет; иначе показываем прицел кнопочной схемы
+    if (this.mode === 'aim') this._drawSwipe();
+    else this._drawButtonAim();
+  }
+
+  /** Прицел и — во время набора силы — траектория для кнопочной схемы. */
+  _drawButtonAim() {
+    const scene = this.scene;
+    const o = this.origin();
+    const d = scene.aimDirection();
+    const weapon = scene.turn.weapon;
+
+    this._ensureCrosshair();
+    this.crosshair.setVisible(true);
+    this.crosshair.setPosition(o.x + d.x * CFG.AIM_RAY_LEN, o.y + d.y * CFG.AIM_RAY_LEN);
+
+    this.gfx.lineStyle(2, 0xffffff, 0.28);
+    this.gfx.lineBetween(o.x + d.x * 16, o.y + d.y * 16,
+      o.x + d.x * (CFG.AIM_RAY_LEN - 12), o.y + d.y * (CFG.AIM_RAY_LEN - 12));
+
+    if (!scene.charging || scene.charge <= 0) { this.info.setVisible(false); return; }
+
+    const speed = scene.charge * CFG.AIM_MAX_POWER;
+    const sx = o.x + d.x * CFG.MUZZLE_OFFSET;
+    const sy = o.y + d.y * CFG.MUZZLE_OFFSET;
+    this._drawTrajectory(sx, sy, d.x * speed, d.y * speed, weapon);
+
+    const deg = Math.round((scene.aimAngle * 180) / Math.PI);
+    this.info.setText(`${deg}°  ${Math.round(scene.charge * 100)}%`);
+    this.info.setPosition(o.x, o.y - 42);
+    this.info.setVisible(true);
+  }
+
+  _ensureCrosshair() {
+    const s = this.scene;
+    const team = s.turn.currentTeam % 2;
+    if (this.crosshair && this.crosshairTeam === team) return;
+
+    const key = `crosshair_${team}`;
+    if (!this.crosshair) {
+      this.crosshair = has(s, key)
+        ? s.add.image(0, 0, key).setDepth(DEPTH.AIM)
+        : s.add.circle(0, 0, 6).setStrokeStyle(2, 0xffffff, 0.8).setDepth(DEPTH.AIM);
+    } else if (this.crosshair.setTexture && has(s, key)) {
+      this.crosshair.setTexture(key); // прицел перекрашивается под команду
+    }
+    this.crosshairTeam = team;
+  }
+
+  _drawTrajectory(sx, sy, vx, vy, weapon) {
+    const pts = this.simulate(sx, sy, vx, vy, weapon);
+    for (let i = 0; i < pts.length; i++) {
+      const a = 0.95 - (i / CFG.TRAJ_POINTS) * 0.6;
+      const r = 3.4 - (i / CFG.TRAJ_POINTS) * 1.4;
+      this.gfx.fillStyle(weapon.color, a);
+      this.gfx.fillCircle(pts[i].x, pts[i].y, r);
+    }
+  }
+
+  _drawSwipe() {
+    if (this.crosshair) this.crosshair.setVisible(false);
     const shot = this.computeShot();
     if (!shot) { this.info.setVisible(false); return; }
 
@@ -128,13 +212,7 @@ export class AimController {
     const sy = o.y + ny * CFG.MUZZLE_OFFSET;
 
     // Пунктирная траектория — первые CFG.TRAJ_POINTS точек
-    const pts = this.simulate(sx, sy, shot.vx, shot.vy, weapon);
-    for (let i = 0; i < pts.length; i++) {
-      const a = 0.95 - (i / CFG.TRAJ_POINTS) * 0.6;
-      const r = 3.4 - (i / CFG.TRAJ_POINTS) * 1.4;
-      this.gfx.fillStyle(weapon.color, a);
-      this.gfx.fillCircle(pts[i].x, pts[i].y, r);
-    }
+    this._drawTrajectory(sx, sy, shot.vx, shot.vy, weapon);
 
     // Линия силы от бойца
     this.gfx.lineStyle(2, 0xffffff, 0.35);
@@ -185,5 +263,6 @@ export class AimController {
     i.off('pointerupoutside', this.onUp, this);
     this.gfx.destroy();
     this.info.destroy();
+    if (this.crosshair) this.crosshair.destroy();
   }
 }

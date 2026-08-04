@@ -95,15 +95,22 @@ export class Hud {
       bx += bw + gap;
     }
 
-    // --- тач-кнопки движения ---
-    this._makeHoldButton(24, CFG.VIEW_H - 86, 64, 64, '◀', 'left');
-    this._makeHoldButton(96, CFG.VIEW_H - 86, 64, 64, '▶', 'right');
-    this._makeHoldButton(60, CFG.VIEW_H - 158, 64, 64, '▲', 'jump');
+    // --- левый блок: ходьба и прыжок ---
+    this._makeHoldButton(24, CFG.VIEW_H - 80, 64, 64, '◀', 'left');
+    this._makeHoldButton(96, CFG.VIEW_H - 80, 64, 64, '▶', 'right');
+    this._makeHoldButton(24, CFG.VIEW_H - 152, 64, 64, '⤒', 'jumpQueued');
 
-    this.hint = fix(scene.add.text(W - 16, CFG.VIEW_H - 16,
-      'свайп по бойцу — выстрел\nтяни фон — камера · 1..4 — оружие', {
-        fontFamily: 'monospace', fontSize: '12px', color: '#7c8aa5', align: 'right',
-      }).setOrigin(1, 1));
+    // --- правый блок: угол и огонь ---
+    this._makeHoldButton(1052, CFG.VIEW_H - 146, 60, 60, '▲', 'aimUp');
+    this._makeHoldButton(1052, CFG.VIEW_H - 76, 60, 60, '▼', 'aimDown');
+    this._makeFireButton(1192, CFG.VIEW_H - 80, 54);
+
+    this.hint = fix(scene.add.text(640, CFG.VIEW_H - 72,
+      'держи ОГОНЬ — набор силы, отпусти — выстрел · ▲▼ угол\n'
+      + 'можно и свайпом по бойцу · тяни фон — камера', {
+        fontFamily: 'monospace', fontSize: '11px', color: '#c3cee0', align: 'center',
+        stroke: '#0d1018', strokeThickness: 3,
+      }).setOrigin(0.5, 1));
 
     scene.input.on('pointerup', this._releaseAll, this);
     scene.input.on('pointerupoutside', this._releaseAll, this);
@@ -120,12 +127,12 @@ export class Hud {
     }).setOrigin(0.5).setScrollFactor(0).setDepth(DEPTH.HUD + 1);
 
     rect.on('pointerdown', () => {
-      if (action === 'jump') s.moveInput.jumpQueued = true;
-      else s.moveInput[action] = true;
+      // jumpQueued — одноразовый флаг, его сцена сама сбрасывает за кадр
+      s.moveInput[action] = true;
       rect.setFillStyle(0x1e2a45, 0.9);
     });
     const release = () => {
-      if (action !== 'jump') s.moveInput[action] = false;
+      if (action !== 'jumpQueued') s.moveInput[action] = false;
       rect.setFillStyle(0x121a2c, 0.75);
     };
     rect.on('pointerup', release);
@@ -133,6 +140,45 @@ export class Hud {
 
     this.moveButtons.push({ rect, release });
     this.uiRects.push({ x, y, w, h });
+  }
+
+  /**
+   * Кнопка выстрела: удержание набирает силу, отпускание стреляет.
+   * Отпускание ловится и глобально (_releaseAll), иначе увод пальца
+   * за пределы кнопки оставил бы заряд висеть навсегда.
+   */
+  _makeFireButton(cx, cy, r) {
+    const s = this.scene;
+    const circle = s.add.circle(cx, cy, r, 0x7a2230, 0.92)
+      .setScrollFactor(0).setDepth(DEPTH.HUD);
+    circle.setStrokeStyle(3, 0xff6b6b);
+    circle.setInteractive(new Phaser.Geom.Circle(r, r, r), Phaser.Geom.Circle.Contains);
+    s.add.text(cx, cy, 'ОГОНЬ', {
+      fontFamily: 'monospace', fontSize: '15px', color: '#ffe0e0',
+    }).setOrigin(0.5).setScrollFactor(0).setDepth(DEPTH.HUD + 1);
+
+    circle.on('pointerdown', () => {
+      s.moveInput.fire = true;
+      circle.setFillStyle(0xd03a4a, 0.95);
+    });
+    const release = () => {
+      s.moveInput.fire = false;
+      circle.setFillStyle(0x7a2230, 0.92);
+    };
+    circle.on('pointerup', release);
+    circle.on('pointerout', release);
+
+    this.moveButtons.push({ rect: circle, release });
+    this.uiRects.push({ x: cx - r, y: cy - r, w: r * 2, h: r * 2 });
+
+    // Шкала заряда над кнопкой
+    const bw = 150;
+    this.chargeBg = s.add.rectangle(cx - bw / 2, cy - r - 20, bw, 12, 0x1a2233, 0.9)
+      .setOrigin(0, 0.5).setScrollFactor(0).setDepth(DEPTH.HUD);
+    this.chargeBg.setStrokeStyle(1, 0x3a4a66);
+    this.chargeBar = s.add.rectangle(cx - bw / 2, cy - r - 20, 0, 12, 0xffd166)
+      .setOrigin(0, 0.5).setScrollFactor(0).setDepth(DEPTH.HUD + 1);
+    this.chargeWidth = bw;
   }
 
   _releaseAll() {
@@ -188,6 +234,14 @@ export class Hud {
     if (k >= 0) this.windGfx.fillRect(cx, cy - 5, half * k, 10);
     else this.windGfx.fillRect(cx + half * k, cy - 5, -half * k, 10);
     this.windGfx.fillStyle(0xffffff, 0.9).fillRect(cx - 1, cy - 9, 2, 18);
+
+    // Подсказка по управлению нужна первые ходы, дальше только мешает
+    this.hint.setAlpha(Phaser.Math.Clamp((5 - turn.turnNumber) / 2, 0, 1));
+
+    // Шкала заряда: жёлтая на наборе, красная у максимума
+    const c = Phaser.Math.Clamp(scene.charge, 0, 1);
+    this.chargeBar.width = this.chargeWidth * c;
+    this.chargeBar.fillColor = c > 0.85 ? 0xff6b6b : c > 0.55 ? 0xffa34d : 0xffd166;
 
     for (let t = 0; t < CFG.TEAMS; t++) {
       const living = scene.worms.filter((w) => w.team === t && w.alive);

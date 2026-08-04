@@ -111,7 +111,13 @@ def build_markers():
     grave = frames(gen('Misc', 'grave1.png'), 60, 60)
     box = union_box(grave[:1])
     save(grave[0].crop(box), 'grave.png')
-    print(f'  маркеры и надгробие готовы')
+
+    # Прицел: берём один кадр, вращать его не нужно
+    for key, src in [('crosshair_0', 'crshairr.png'), ('crosshair_1', 'crshairb.png')]:
+        fr = frames(gen('Misc', src), 60, 60)
+        save(fr[0].crop(union_box(fr[:1])), f'{key}.png')
+
+    print('  маркеры, надгробие и прицел готовы')
 
 
 def build_projectiles():

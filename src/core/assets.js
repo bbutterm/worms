@@ -15,6 +15,8 @@ import { BIOMES } from './biomes.js';
 /** Одиночные картинки. */
 export const IMAGES = {
   grave: 'assets/grave.png',
+  crosshair_0: 'assets/crosshair_0.png',
+  crosshair_1: 'assets/crosshair_1.png',
   icon_bazooka: 'assets/icon_bazooka.png',
   icon_grenade: 'assets/icon_grenade.png',
   icon_cluster: 'assets/icon_cluster.png',

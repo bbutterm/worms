@@ -67,6 +67,7 @@ export class TurnManager {
 
     // Ветер случайный в начале каждого хода
     this.scene.setWind(this.scene.rng.range(CFG.WIND_MIN, CFG.WIND_MAX));
+    this.scene.resetAim();
 
     for (const w of this.scene.worms) w.setActiveMarker(w === worm);
     this.scene.setCameraManual(false);
@@ -95,6 +96,7 @@ export class TurnManager {
   onFired() {
     this.state = STATE.FLYING;
     this.activeWorm?.setActiveMarker(false);
+    this.scene.cancelCharge();
   }
 
   /** Досрочно завершить ход (таймер, смерть активного бойца). */

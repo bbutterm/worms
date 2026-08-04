@@ -19,7 +19,17 @@ export default class GameScene extends Phaser.Scene {
     this.projectiles = [];
     this.followTarget = null;
     this.cameraManual = false;
-    this.moveInput = { left: false, right: false, jumpQueued: false };
+    this.moveInput = {
+      left: false, right: false, jumpQueued: false,
+      aimUp: false, aimDown: false, fire: false,
+    };
+
+    // Прицеливание кнопками: угол хранится в «математической» системе
+    // (0 — горизонт, +π/2 — вверх) и разворачивается по facing бойца.
+    this.aimAngle = CFG.AIM_ANGLE_START;
+    this.charging = false;
+    this.charge = 0;
+    this._lastNow = 0;   // отметка системных часов для realDt
     this.gameOverUi = null;
 
     const biome = this._chooseBiome();
@@ -192,10 +202,20 @@ export default class GameScene extends Phaser.Scene {
       right: Phaser.Input.Keyboard.KeyCodes.RIGHT,
       a: Phaser.Input.Keyboard.KeyCodes.A,
       d: Phaser.Input.Keyboard.KeyCodes.D,
-      jump: Phaser.Input.Keyboard.KeyCodes.SPACE,
       up: Phaser.Input.Keyboard.KeyCodes.UP,
+      down: Phaser.Input.Keyboard.KeyCodes.DOWN,
+      w: Phaser.Input.Keyboard.KeyCodes.W,
+      s: Phaser.Input.Keyboard.KeyCodes.S,
+      fire: Phaser.Input.Keyboard.KeyCodes.SPACE,   // держать = набор силы
+      jump: Phaser.Input.Keyboard.KeyCodes.ENTER,
       restart: Phaser.Input.Keyboard.KeyCodes.R,
     });
+    // Пробел и стрелки не должны скроллить страницу под игрой
+    kb.addCapture([
+      Phaser.Input.Keyboard.KeyCodes.SPACE, Phaser.Input.Keyboard.KeyCodes.UP,
+      Phaser.Input.Keyboard.KeyCodes.DOWN, Phaser.Input.Keyboard.KeyCodes.LEFT,
+      Phaser.Input.Keyboard.KeyCodes.RIGHT,
+    ]);
     kb.on('keydown', (e) => {
       const n = parseInt(e.key, 10);
       if (!Number.isNaN(n) && n >= 1) this.turn.setWeaponIndex(n - 1);
@@ -208,9 +228,20 @@ export default class GameScene extends Phaser.Scene {
   // ------------------------------------------------------------------ цикл
 
   update(time, delta) {
+    // Физика идёт по dt самого Phaser, зажатому сверху: редкий тяжёлый кадр
+    // не должен телепортировать тела сквозь землю, а замедление под нагрузкой
+    // для физики безопаснее пропущенных столкновений.
     const dt = Math.min(delta / 1000, CFG.MAX_DT);
 
-    this._handleMovement(dt);
+    // Таймер хода, набор силы и поворот прицела считаются по системным часам.
+    // Дельта Phaser для этого не годится: он её сглаживает и под нагрузкой
+    // отдаёт ровные 16.7 мс на кадр независимо от того, сколько времени
+    // реально прошло, — тридцатисекундный ход растянулся бы на минуты.
+    const now = performance.now();
+    const realDt = this._lastNow ? Math.min((now - this._lastNow) / 1000, 0.25) : 0;
+    this._lastNow = now;
+
+    this._handleMovement(dt, realDt);
 
     for (const w of this.worms) w.update(dt);
 
@@ -226,14 +257,15 @@ export default class GameScene extends Phaser.Scene {
 
     this._updateCamera(dt);
     this.aim.update();
-    this.turn.update(dt);
+    this.turn.update(realDt);
     this.hud.update();
   }
 
-  _handleMovement(dt) {
+  _handleMovement(dt, realDt) {
     const w = this.turn.activeWorm;
     if (!this.canPlayerAct() || !w || !w.alive) {
       this.moveInput.jumpQueued = false;
+      if (this.charging) this.cancelCharge();
       return;
     }
     const k = this.keys;
@@ -245,11 +277,69 @@ export default class GameScene extends Phaser.Scene {
       this.cameraManual = false; // пошли — камера снова ведёт бойца
     }
 
-    const jump = this.moveInput.jumpQueued
-      || Phaser.Input.Keyboard.JustDown(k.jump)
-      || Phaser.Input.Keyboard.JustDown(k.up);
+    const jump = this.moveInput.jumpQueued || Phaser.Input.Keyboard.JustDown(k.jump);
     if (jump) w.jump();
     this.moveInput.jumpQueued = false;
+
+    // Угол прицела
+    const up = this.moveInput.aimUp || k.up.isDown || k.w.isDown;
+    const down = this.moveInput.aimDown || k.down.isDown || k.s.isDown;
+    if (up !== down) this.adjustAim((up ? 1 : -1) * CFG.AIM_ANGLE_RATE * realDt);
+
+    // Сила: держим «Огонь» — шкала набирается, отпустили — выстрел.
+    // Состояние читаем опросом, а не событиями: так тач-кнопка и пробел
+    // не могут разъехаться по порядку событий.
+    const pressed = this.moveInput.fire || k.fire.isDown;
+    if (pressed && !this.charging) this.beginCharge();
+    else if (!pressed && this.charging) this.releaseCharge();
+    else if (this.charging) {
+      this.charge += realDt / CFG.CHARGE_TIME;
+      if (this.charge >= 1) { this.charge = 1; this.releaseCharge(); }
+    }
+  }
+
+  // ------------------------------------------------------- прицел и заряд
+
+  adjustAim(delta) {
+    this.aimAngle = Phaser.Math.Clamp(
+      this.aimAngle + delta, -CFG.AIM_ANGLE_LIMIT, CFG.AIM_ANGLE_LIMIT,
+    );
+  }
+
+  /** Единичный вектор выстрела с учётом того, куда смотрит боец. */
+  aimDirection() {
+    const w = this.turn.activeWorm;
+    const face = w ? w.facing : 1;
+    return { x: Math.cos(this.aimAngle) * face, y: -Math.sin(this.aimAngle) };
+  }
+
+  beginCharge() {
+    if (!this.canPlayerAct()) return;
+    this.charging = true;
+    this.charge = 0;
+  }
+
+  cancelCharge() {
+    this.charging = false;
+    this.charge = 0;
+  }
+
+  releaseCharge() {
+    if (!this.charging) return;
+    const power = this.charge;
+    this.charging = false;
+    this.charge = 0;
+    // Слишком короткое нажатие — скорее всего задели случайно, ход не тратим
+    if (power < CFG.CHARGE_MIN) return;
+    const d = this.aimDirection();
+    const speed = power * CFG.AIM_MAX_POWER;
+    this.fireActiveWorm(d.x * speed, d.y * speed);
+  }
+
+  /** Сброс прицела в начале хода. */
+  resetAim() {
+    this.aimAngle = CFG.AIM_ANGLE_START;
+    this.cancelCharge();
   }
 
   _updateCamera(dt) {
