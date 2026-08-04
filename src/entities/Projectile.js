@@ -1,5 +1,5 @@
 import { CFG, DEPTH } from '../config.js';
-import { has } from '../core/assets.js';
+import { has, rotFrame } from '../core/assets.js';
 
 /**
  * Снаряд с самописной физикой.
@@ -38,10 +38,13 @@ export class Projectile {
     const s = this.scene;
     const p = this.weapon.projectile;
     const key = this.weapon.spriteKey;
+    this.sprited = Boolean(key) && has(s, key);
 
-    if (key && has(s, key)) {
-      this.view = s.add.image(this.x, this.y, key);
-      this.view.setDisplaySize(p.radius * 3.2, p.radius * 3.2);
+    if (this.sprited) {
+      this.view = s.add.sprite(this.x, this.y, key);
+      // rotational — кадры это 32 предрассчитанных поворота, а не анимация
+      if (this.weapon.rotational) this.view.setFrame(rotFrame(this.vx, this.vy));
+      else if (s.anims.exists(key)) this.view.play(key);
     } else {
       this.view = s.add.circle(this.x, this.y, p.radius, this.weapon.color);
       this.view.setStrokeStyle(2, 0x1a1a24, 0.6);
@@ -199,8 +202,8 @@ export class Projectile {
 
   _syncView() {
     this.view.setPosition(this.x, this.y);
-    if (this.view.setRotation && this.weapon.spriteKey && this.view.type === 'Image') {
-      this.view.setRotation(Math.atan2(this.vy, this.vx) + Math.PI / 2);
+    if (this.sprited && this.weapon.rotational && !this.resting) {
+      this.view.setFrame(rotFrame(this.vx, this.vy));
     }
     if (this.fuseLeft > 0) {
       // мигание фитиля

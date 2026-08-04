@@ -3,7 +3,7 @@ import { makeRng } from '../core/rng.js';
 import { BIOMES, pickBiome } from '../core/biomes.js';
 import { Terrain } from '../core/Terrain.js';
 import { TurnManager, STATE } from '../core/TurnManager.js';
-import { has } from '../core/assets.js';
+import { has, meta } from '../core/assets.js';
 import { Worm } from '../entities/Worm.js';
 import { Hud } from '../ui/Hud.js';
 import { Fx } from '../ui/Fx.js';
@@ -38,7 +38,7 @@ export default class GameScene extends Phaser.Scene {
 
     const cam = this.cameras.main;
     cam.setBounds(0, 0, CFG.WORLD_W, CFG.WORLD_H);
-    cam.setBackgroundColor(biome.sky[1]);
+    cam.setBackgroundColor(biome.fallback.sky[1]);
 
     this.turn.begin(this.rng.int(0, CFG.TEAMS - 1));
     if (this.turn.activeWorm) {
@@ -60,81 +60,58 @@ export default class GameScene extends Phaser.Scene {
   }
 
   _buildSky(biome) {
-    const key = 'sky-tex';
-    if (this.textures.exists(key)) this.textures.remove(key);
-    const tex = this.textures.createCanvas(key, CFG.VIEW_W, CFG.VIEW_H);
-    const ctx = tex.getContext();
-    const g = ctx.createLinearGradient(0, 0, 0, CFG.VIEW_H);
-    g.addColorStop(0, biome.sky[0]);
-    g.addColorStop(1, biome.sky[1]);
-    ctx.fillStyle = g;
-    ctx.fillRect(0, 0, CFG.VIEW_W, CFG.VIEW_H);
-
-    if (biome.sun !== null && biome.sun !== undefined) {
-      ctx.fillStyle = `#${biome.sun.toString(16).padStart(6, '0')}`;
-      ctx.globalAlpha = 0.85;
-      ctx.beginPath();
-      ctx.arc(CFG.VIEW_W * 0.78, 110, 46, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.globalAlpha = 1;
-    }
-    tex.refresh();
-
-    if (has(this, 'bg_sky')) {
-      this.add.tileSprite(0, 0, CFG.VIEW_W, CFG.VIEW_H, 'bg_sky')
-        .setOrigin(0, 0).setScrollFactor(0).setDepth(DEPTH.SKY);
+    // Градиент неба из темы: узкая вертикальная полоска, растянутая по ширине.
+    // По высоте НЕ ужимаем: градиент рассчитан на карту выше экрана, и его
+    // нижняя (почти чёрная) часть должна остаться за кадром.
+    if (has(this, `${biome.id}_sky`)) {
+      const skyH = meta(`terrain_${biome.id}`)?.skyH ?? CFG.VIEW_H;
+      this.add.image(0, 0, `${biome.id}_sky`)
+        .setOrigin(0, 0)
+        .setDisplaySize(CFG.VIEW_W, Math.max(skyH, CFG.VIEW_H))
+        .setScrollFactor(0)
+        .setDepth(DEPTH.SKY);
     } else {
-      this.add.image(0, 0, key).setOrigin(0, 0).setScrollFactor(0).setDepth(DEPTH.SKY);
+      const key = 'sky-tex';
+      if (this.textures.exists(key)) this.textures.remove(key);
+      const tex = this.textures.createCanvas(key, 8, CFG.VIEW_H);
+      const ctx = tex.getContext();
+      const g = ctx.createLinearGradient(0, 0, 0, CFG.VIEW_H);
+      g.addColorStop(0, biome.fallback.sky[0]);
+      g.addColorStop(1, biome.fallback.sky[1]);
+      ctx.fillStyle = g;
+      ctx.fillRect(0, 0, 8, CFG.VIEW_H);
+      tex.refresh();
+      this.add.image(0, 0, key).setOrigin(0, 0)
+        .setDisplaySize(CFG.VIEW_W, CFG.VIEW_H)
+        .setScrollFactor(0).setDepth(DEPTH.SKY);
     }
 
     this._buildParallax(biome);
   }
 
   _buildParallax(biome) {
-    if (has(this, 'bg_hills')) {
-      this.add.tileSprite(0, CFG.GROUND_BASE - 300, CFG.WORLD_W, 340, 'bg_hills')
-        .setOrigin(0, 0).setScrollFactor(0.4, 1).setDepth(DEPTH.PARALLAX);
-      return;
-    }
+    const key = `${biome.id}_back`;
+    if (!has(this, key)) return;
 
-    const key = 'hills-tex';
-    if (this.textures.exists(key)) this.textures.remove(key);
-    const h = 340;
-    const tex = this.textures.createCanvas(key, CFG.WORLD_W, h);
-    const ctx = tex.getContext();
-    const color = `#${biome.hills.toString(16).padStart(6, '0')}`;
-
-    for (let layer = 0; layer < 2; layer++) {
-      ctx.globalAlpha = layer === 0 ? 0.45 : 0.7;
-      ctx.fillStyle = color;
-      ctx.beginPath();
-      ctx.moveTo(0, h);
-      const amp = 60 - layer * 18;
-      const freq = 0.0018 + layer * 0.0013;
-      const off = 150 + layer * 70;
-      const phase = this.rng() * 10;
-      for (let x = 0; x <= CFG.WORLD_W; x += 4) {
-        const y = off - Math.sin(x * freq + phase) * amp - Math.sin(x * freq * 2.7 + phase) * amp * 0.35;
-        ctx.lineTo(x, y);
-      }
-      ctx.lineTo(CFG.WORLD_W, h);
-      ctx.closePath();
-      ctx.fill();
-    }
-    ctx.globalAlpha = 1;
-    tex.refresh();
-
-    this.add.image(0, CFG.GROUND_BASE - 300, key)
-      .setOrigin(0, 0).setScrollFactor(0.4, 1).setDepth(DEPTH.PARALLAX);
+    const src = this.textures.get(key).getSourceImage();
+    // Фон тайлится по горизонтали. Верхняя кромка у него силуэтная (с альфой)
+    // и красиво переходит в небо, а нижняя обрезана «по живому» — поэтому
+    // сажаем низ на линию воды, где её закрывает земля и водная плёнка.
+    this.add.tileSprite(0, CFG.WATER_Y - src.height, CFG.WORLD_W, src.height, key)
+      .setOrigin(0, 0)
+      .setScrollFactor(0.45, 1)
+      .setDepth(DEPTH.PARALLAX);
   }
 
   _buildTerrain(biome) {
     this.terrain = new Terrain(CFG.WORLD_W, CFG.WORLD_H, biome, this.rng);
+    this.terrain.setTextures({
+      soil: has(this, `${biome.id}_soil`)
+        ? this.textures.get(`${biome.id}_soil`).getSourceImage() : null,
+      grass: has(this, `${biome.id}_grass`)
+        ? this.textures.get(`${biome.id}_grass`).getSourceImage() : null,
+    });
     this.terrain.generate();
-
-    if (biome.texKey && has(this, biome.texKey)) {
-      this.terrain.setTileImage(this.textures.get(biome.texKey).getSourceImage());
-    }
 
     // По одной Phaser-текстуре на чанк: после взрыва в GPU уходит
     // только задетый кусок, а не вся карта целиком.

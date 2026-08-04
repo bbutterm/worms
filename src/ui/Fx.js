@@ -10,11 +10,36 @@ export class Fx {
   explosion(x, y, radius) {
     const s = this.scene;
 
-    if (has(s, 'explosion') && s.anims.exists('explode')) {
-      const spr = s.add.sprite(x, y, 'explosion').setDepth(DEPTH.FX);
-      spr.setDisplaySize(radius * 3.4, radius * 3.4);
-      spr.play('explode');
-      spr.once('animationcomplete', () => spr.destroy());
+    // Взрыв из оригинала собирается из двух примитивов: белая вспышка
+    // (кадр 0 fx_flash), оранжевое кольцо (кадр 3) и облачка дыма.
+    if (has(s, 'fx_flash')) {
+      const flash = s.add.sprite(x, y, 'fx_flash', 0).setDepth(DEPTH.FX);
+      flash.setDisplaySize(radius * 2.2, radius * 2.2).setScale(flash.scaleX * 0.35);
+      const full = radius * 2.2;
+      s.tweens.add({
+        targets: flash, displayWidth: full, displayHeight: full, alpha: 0,
+        duration: 260, ease: 'Quad.easeOut', onComplete: () => flash.destroy(),
+      });
+
+      const ring = s.add.sprite(x, y, 'fx_flash', 3).setDepth(DEPTH.FX);
+      ring.setDisplaySize(radius * 0.7, radius * 0.7);
+      s.tweens.add({
+        targets: ring, displayWidth: radius * 3, displayHeight: radius * 3, alpha: 0,
+        duration: 360, ease: 'Cubic.easeOut', onComplete: () => ring.destroy(),
+      });
+
+      if (has(s, 'fx_smoke') && s.anims.exists('fx_smoke')) {
+        const puffs = Math.max(3, Math.round(radius / 12));
+        for (let i = 0; i < puffs; i++) {
+          const a = (i / puffs) * Math.PI * 2 + Math.random();
+          const d = radius * (0.2 + Math.random() * 0.7);
+          const puff = s.add.sprite(x + Math.cos(a) * d, y + Math.sin(a) * d, 'fx_smoke')
+            .setDepth(DEPTH.FX - 1);
+          puff.setDisplaySize(radius * 1.1, radius * 1.1);
+          puff.play({ key: 'fx_smoke', startFrame: Math.floor(Math.random() * 4) });
+          puff.once('animationcomplete', () => puff.destroy());
+        }
+      }
       return;
     }
 

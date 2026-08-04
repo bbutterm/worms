@@ -121,6 +121,18 @@ export class Terrain {
   }
 
   /**
+   * Подключить текстуры темы: тайл земли и полосу верхнего слоя.
+   * Вызывается до generate(); если текстур нет — рисуются запасные цвета.
+   */
+  setTextures({ soil = null, grass = null } = {}) {
+    this.soilImage = soil;
+    this.grassImage = grass;
+    for (const chunk of this.chunks) {
+      chunk.pattern = soil ? chunk.ctx.createPattern(soil, 'repeat') : null;
+    }
+  }
+
+  /**
    * Перерисовать видимую текстуру во всех чанках.
    * Внутри каждого чанка холст сдвинут так, что рисование идёт
    * в мировых координатах — формулы одни и те же для всех кусков.
@@ -128,6 +140,11 @@ export class Terrain {
   _paintTexture() {
     const b = this.biome;
     const h = this.height;
+    const grass = this.grassImage;
+    // Насколько полоса травы выступает над линией поверхности. Держим
+    // небольшим: визуальная кромка не должна заметно расходиться с той,
+    // по которой считается физика, иначе игрок мажет.
+    const over = grass ? Math.round(grass.height * (b.grassOver ?? 0.2)) : 0;
 
     for (let i = 0; i < this.chunks.length; i++) {
       const chunk = this.chunks[i];
@@ -140,46 +157,44 @@ export class Terrain {
 
       const x0 = chunk.x0, x1 = chunk.x0 + chunk.w;
 
-      // Тело земли — вертикальный градиент
-      const grad = ctx.createLinearGradient(0, CFG.GROUND_BASE - 340, 0, h);
-      grad.addColorStop(0, b.fill);
-      grad.addColorStop(1, b.fillDark);
-      ctx.fillStyle = grad;
+      // --- тело земли ---
+      if (chunk.pattern) {
+        ctx.fillStyle = chunk.pattern;
+      } else {
+        const grad = ctx.createLinearGradient(0, CFG.GROUND_BASE - 340, 0, h);
+        grad.addColorStop(0, b.fallback.fill);
+        grad.addColorStop(1, b.fallback.fillDark);
+        ctx.fillStyle = grad;
+      }
       ctx.fillRect(x0, 0, chunk.w, h);
 
-      // Тайловая текстура земли поверх заливки, если спрайт подгрузился
-      if (chunk.pattern) {
-        ctx.globalAlpha = 0.75;
-        ctx.fillStyle = chunk.pattern;
-        ctx.fillRect(x0, 0, chunk.w, h);
-        ctx.globalAlpha = 1;
-      }
-
-      // Верхний слой (трава / песок / снег) по линии поверхности
-      ctx.fillStyle = b.rim;
-      ctx.beginPath();
-      ctx.moveTo(x0, this.surface[x0]);
-      for (let x = x0; x < x1; x++) ctx.lineTo(x, this.surface[x]);
-      for (let x = x1 - 1; x >= x0; x--) ctx.lineTo(x, this.surface[x] + b.rimH);
-      ctx.closePath();
-      ctx.fill();
-
-      // Обрезаем по маске
+      // Обрезаем тело по маске
       ctx.globalCompositeOperation = 'destination-in';
       ctx.drawImage(this.maskCanvas, 0, 0);
       ctx.globalCompositeOperation = 'source-over';
 
+      // --- верхний слой (трава / песок / снег) ---
+      // Рисуется ПОСЛЕ обрезки, вертикальными срезами по одному пикселю:
+      // так полоса точно повторяет рельеф и её кромка торчит над землёй,
+      // а не срезается маской.
+      if (grass) {
+        const gw = grass.width, gh = grass.height;
+        for (let x = x0; x < x1; x++) {
+          const sx = ((x % gw) + gw) % gw;
+          ctx.drawImage(grass, sx, 0, 1, gh, x, this.surface[x] - over, 1, gh);
+        }
+      } else {
+        ctx.fillStyle = b.fallback.rim;
+        ctx.beginPath();
+        ctx.moveTo(x0, this.surface[x0]);
+        for (let x = x0; x < x1; x++) ctx.lineTo(x, this.surface[x]);
+        for (let x = x1 - 1; x >= x0; x--) ctx.lineTo(x, this.surface[x] + 14);
+        ctx.closePath();
+        ctx.fill();
+      }
+
       this.dirtyChunks.add(i);
     }
-  }
-
-  /** Подключить тайловую текстуру земли (вызывается, если спрайт есть). */
-  setTileImage(image) {
-    if (!image) return;
-    for (const chunk of this.chunks) {
-      chunk.pattern = chunk.ctx.createPattern(image, 'repeat');
-    }
-    this._paintTexture();
   }
 
   // ------------------------------------------------------------- разрушение

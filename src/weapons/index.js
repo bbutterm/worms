@@ -3,6 +3,11 @@ import { Weapon, ClusterWeapon } from './Weapon.js';
 /**
  * Реестр оружия. Порядок = порядок кнопок в HUD и клавиш 1..N.
  * Добавить новое оружие = дописать сюда объект.
+ *
+ * spriteKey — спрайтшит снаряда, iconKey — иконка для панели.
+ * rotational: true означает, что кадры спрайтшита это 32 предрассчитанных
+ * поворота (кадр выбирается по направлению полёта), иначе кадры крутятся
+ * как обычная анимация — снаряд кувыркается.
  */
 
 const BOMBLET = new Weapon({
@@ -22,6 +27,8 @@ export const WEAPONS = [
     icon: '➶',
     color: 0xffe066,
     spriteKey: 'proj_bazooka',
+    iconKey: 'icon_bazooka',
+    rotational: true,
     projectile: { radius: 5, windScale: 1, gravityScale: 1 },
     explosion: { radius: 40, damageRadius: 72, damage: 45, knockback: 300, shake: 0.006 },
   }),
@@ -32,6 +39,7 @@ export const WEAPONS = [
     icon: '◕',
     color: 0x8ee06a,
     spriteKey: 'proj_grenade',
+    iconKey: 'icon_grenade',
     projectile: {
       radius: 5, windScale: 0.35, bounciness: 0.45, friction: 0.72, fuse: 3,
     },
@@ -44,7 +52,8 @@ export const WEAPONS = [
     icon: '❋',
     color: 0xff8ad4,
     spriteKey: 'proj_cluster',
-    projectile: { radius: 5, windScale: 0.8 },
+    iconKey: 'icon_cluster',
+    projectile: { radius: 6, windScale: 0.8 },
     explosion: { radius: 26, damageRadius: 46, damage: 22, knockback: 180, shake: 0.004 },
     clusterCount: 5,
     clusterSpeed: 250,
@@ -52,13 +61,14 @@ export const WEAPONS = [
   }),
 
   new Weapon({
-    id: 'drill',
-    name: 'Бур',
+    id: 'mole',
+    name: 'Крот',
     icon: '⇩',
     color: 0xc0c8d8,
-    spriteKey: 'proj_drill',
+    spriteKey: 'proj_mole',
+    iconKey: 'icon_mole',
     projectile: {
-      radius: 5, windScale: 0.15, gravityScale: 1.15,
+      radius: 6, windScale: 0.15, gravityScale: 1.15,
       digRadius: 9, digTime: 0.55,
     },
     explosion: { radius: 52, damageRadius: 78, damage: 40, knockback: 260, shake: 0.008 },

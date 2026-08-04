@@ -14,6 +14,9 @@ export class Weapon {
     this.icon = cfg.icon ?? '•';
     this.color = cfg.color ?? 0xffffff;
     this.spriteKey = cfg.spriteKey ?? null;
+    this.iconKey = cfg.iconKey ?? null;
+    // Кадры спрайтшита — предрассчитанные повороты, а не анимация
+    this.rotational = cfg.rotational ?? false;
 
     // Параметры полёта
     this.projectile = Object.assign({

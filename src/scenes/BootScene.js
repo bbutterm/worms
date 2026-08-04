@@ -1,8 +1,11 @@
-import { IMAGES, SHEETS, missing } from '../core/assets.js';
+import { IMAGES, SHEETS, meta, missing } from '../core/assets.js';
 
 /**
  * Загрузка спрайтов. Отсутствие любого файла не ломает игру:
  * ключ помечается как missing, и вместо спрайта рисуется плейсхолдер.
+ *
+ * Размеры кадров спрайтшитов берутся из sprite-meta.js, который
+ * генерирует tools/build_assets.py вместе с самими картинками.
  */
 export default class BootScene extends Phaser.Scene {
   constructor() { super('Boot'); }
@@ -20,25 +23,28 @@ export default class BootScene extends Phaser.Scene {
     for (const [key, path] of Object.entries(IMAGES)) {
       this.load.image(key, path);
     }
-    for (const [key, def] of Object.entries(SHEETS)) {
-      this.load.spritesheet(key, def.path, {
-        frameWidth: def.frameWidth,
-        frameHeight: def.frameHeight,
+    for (const key of Object.keys(SHEETS)) {
+      const m = meta(key);
+      if (!m) { console.warn(`[assets] нет размеров кадра для ${key}`); continue; }
+      this.load.spritesheet(key, `assets/${key}.png`, {
+        frameWidth: m.frameWidth,
+        frameHeight: m.frameHeight,
       });
     }
   }
 
   create() {
     for (const [key, def] of Object.entries(SHEETS)) {
-      if (missing.has(key) || !this.textures.exists(key)) continue;
-      const frames = this.textures.get(key).frameTotal - 1; // минус служебный __BASE
+      if (!def.anims || missing.has(key) || !this.textures.exists(key)) continue;
+      const total = this.textures.get(key).frameTotal - 1; // минус служебный __BASE
       for (const [animKey, a] of Object.entries(def.anims)) {
         if (this.anims.exists(animKey)) continue;
-        const end = a.end < 0 ? frames - 1 : a.end;
-        if (end < a.start) continue;
+        const start = a.start ?? 0;
+        const end = a.end ?? total - 1;
+        if (end < start) continue;
         this.anims.create({
           key: animKey,
-          frames: this.anims.generateFrameNumbers(key, { start: a.start, end }),
+          frames: this.anims.generateFrameNumbers(key, { start, end }),
           frameRate: a.frameRate,
           repeat: a.repeat,
         });

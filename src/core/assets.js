@@ -1,57 +1,67 @@
+import { SPRITE_META } from './sprite-meta.js';
+import { BIOMES } from './biomes.js';
+
 /**
  * Манифест спрайтов.
  *
- * Любого файла может не быть — тогда движок молча рисует цветной
- * плейсхолдер, и игра остаётся играбельной. Когда придёт архив со
- * спрайтами: разложить файлы по путям ниже (или поправить пути здесь) —
- * больше ничего менять не надо.
+ * Содержимое assets/ собирается из рипов Worms Armageddon скриптом
+ * tools/build_assets.py — он же выписывает размеры кадров в sprite-meta.js.
+ * Пересобрать: `python3 tools/build_assets.py`.
  *
- * Ожидаемые размеры — рекомендация, всё равно масштабируется под
- * логические размеры сущностей.
+ * Любого файла может не быть — тогда движок молча рисует цветной
+ * плейсхолдер, и игра остаётся играбельной.
  */
+
+/** Одиночные картинки. */
 export const IMAGES = {
-  // Персонаж (24x32 логически; спрайт может быть крупнее, впишется по высоте)
-  worm: 'assets/worm.png',
-
-  // Фон и параллакс (тайлится по горизонтали)
-  bg_sky: 'assets/bg_sky.png',
-  bg_hills: 'assets/bg_hills.png',
-
-  // Тайловые текстуры земли — по одной на биом (repeat, лучше бесшовные 128x128)
-  terrain_meadow: 'assets/terrain_meadow.png',
-  terrain_desert: 'assets/terrain_desert.png',
-  terrain_tundra: 'assets/terrain_tundra.png',
-  terrain_volcano: 'assets/terrain_volcano.png',
-
-  // Снаряды (~16x16, центр = центр снаряда)
-  proj_bazooka: 'assets/proj_bazooka.png',
-  proj_grenade: 'assets/proj_grenade.png',
-  proj_cluster: 'assets/proj_cluster.png',
-  proj_bomblet: 'assets/proj_bomblet.png',
-  proj_drill: 'assets/proj_drill.png',
-
-  // Прочее
-  crosshair: 'assets/crosshair.png',
+  grave: 'assets/grave.png',
+  icon_bazooka: 'assets/icon_bazooka.png',
+  icon_grenade: 'assets/icon_grenade.png',
+  icon_cluster: 'assets/icon_cluster.png',
+  icon_mole: 'assets/icon_mole.png',
 };
+
+/** Текстуры ландшафта: по четыре файла на каждую тему из biomes.js. */
+for (const b of BIOMES) {
+  IMAGES[`${b.id}_soil`] = `assets/terrain/${b.id}/soil.png`;
+  IMAGES[`${b.id}_grass`] = `assets/terrain/${b.id}/grass.png`;
+  IMAGES[`${b.id}_back`] = `assets/terrain/${b.id}/back.png`;
+  IMAGES[`${b.id}_sky`] = `assets/terrain/${b.id}/sky.png`;
+}
 
 /**
- * Спрайтшиты (кадровая анимация). Если файла нет — анимация просто не создаётся.
- * Формат: [путь, ширина кадра, высота кадра, { анимации }]
+ * Спрайтшиты: горизонтальные ленты кадров. Размер кадра берётся из
+ * sprite-meta.js, число кадров Phaser определяет сам.
+ *
+ * `anims` описывает анимации, которые надо создать при загрузке.
+ * `rotational: true` означает, что кадры — это не анимация, а 32
+ * предрассчитанных поворота (кадр выбирается по направлению полёта).
  */
 export const SHEETS = {
-  explosion: {
-    path: 'assets/explosion.png',
-    frameWidth: 96,
-    frameHeight: 96,
-    anims: { explode: { start: 0, end: -1, frameRate: 24, repeat: 0 } },
-  },
-  worm_walk: {
-    path: 'assets/worm_walk.png',
-    frameWidth: 32,
-    frameHeight: 40,
-    anims: { walk: { start: 0, end: -1, frameRate: 12, repeat: -1 } },
-  },
+  worm_idle: { anims: { worm_idle: { frameRate: 10, repeat: -1 } } },
+  worm_walk: { anims: { worm_walk: { frameRate: 18, repeat: -1 } } },
+  worm_fall: { anims: { worm_fall: { frameRate: 8, repeat: -1 } } },
+
+  marker_0: { anims: { marker_0: { frameRate: 12, repeat: -1 } } },
+  marker_1: { anims: { marker_1: { frameRate: 12, repeat: -1 } } },
+
+  proj_bazooka: { rotational: true },
+  proj_grenade: { anims: { proj_grenade: { frameRate: 24, repeat: -1 } } },
+  proj_cluster: { anims: { proj_cluster: { frameRate: 24, repeat: -1 } } },
+  proj_bomblet: { anims: { proj_bomblet: { frameRate: 16, repeat: -1 } } },
+  proj_mole: { anims: { proj_mole: { frameRate: 16, repeat: -1 } } },
+
+  fx_flash: {},
+  fx_smoke: { anims: { fx_smoke: { frameRate: 30, repeat: 0 } } },
 };
+
+/** Число предрассчитанных поворотов у снарядов с rotational: true. */
+export const ROT_FRAMES = 32;
+/**
+ * Кадр 7 смотрит вправо, дальше кадры идут по часовой стрелке с шагом
+ * 360/32 градуса. Проверено по центроиду носа ракеты в tools.
+ */
+export const ROT_ZERO_FRAME = 7;
 
 /** Ключи, которые не удалось загрузить. Заполняется в BootScene. */
 export const missing = new Set();
@@ -60,7 +70,15 @@ export function has(scene, key) {
   return !missing.has(key) && scene.textures.exists(key);
 }
 
-/** Ключ реального спрайта либо плейсхолдера. */
-export function keyOr(scene, key, fallback) {
-  return has(scene, key) ? key : fallback;
+export function meta(key) {
+  return SPRITE_META[key] ?? null;
+}
+
+/** Индекс предрассчитанного поворота для направления (vx, vy). */
+export function rotFrame(vx, vy) {
+  const a = Math.atan2(-vy, vx);                       // угол в «математической» системе
+  const step = (Math.PI * 2) / ROT_FRAMES;
+  let f = Math.round(ROT_ZERO_FRAME - a / step) % ROT_FRAMES;
+  if (f < 0) f += ROT_FRAMES;
+  return f;
 }

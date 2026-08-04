@@ -1,5 +1,6 @@
 import { CFG, DEPTH, TEAM_COLORS, TEAM_NAMES } from '../config.js';
 import { WEAPONS } from '../weapons/index.js';
+import { has as hasAsset } from '../core/assets.js';
 
 /**
  * Весь интерфейс: таймер хода, ветер, здоровье команд, выбор оружия, тач-кнопки.
@@ -75,9 +76,13 @@ export class Hud {
       rect.setInteractive({ useHandCursor: true });
       rect.on('pointerdown', () => scene.turn.setWeaponIndex(i));
 
-      const icon = fix(scene.add.text(bx + bw / 2, by + 7, weapon.icon, {
-        fontFamily: 'monospace', fontSize: '18px', color: '#ffffff',
-      }).setOrigin(0.5, 0), DEPTH.HUD + 1);
+      // Иконка из оригинала, если она загрузилась; иначе текстовый символ
+      const icon = hasAsset(scene, weapon.iconKey)
+        ? fix(scene.add.image(bx + bw / 2, by + 16, weapon.iconKey)
+          .setOrigin(0.5), DEPTH.HUD + 1)
+        : fix(scene.add.text(bx + bw / 2, by + 7, weapon.icon, {
+          fontFamily: 'monospace', fontSize: '18px', color: '#ffffff',
+        }).setOrigin(0.5, 0), DEPTH.HUD + 1);
       const name = fix(scene.add.text(bx + bw / 2, by + 29, weapon.name, {
         fontFamily: 'monospace', fontSize: '11px', color: '#a9b6cd',
       }).setOrigin(0.5, 0), DEPTH.HUD + 1);
@@ -150,7 +155,9 @@ export class Hud {
       const on = k === i;
       b.rect.setStrokeStyle(2, on ? WEAPONS[k].color : 0x2f3d5c);
       b.rect.setFillStyle(on ? 0x1c2942 : 0x121a2c, 0.9);
-      b.icon.setColor(on ? '#ffffff' : '#8f9db6');
+      // Иконка может быть картинкой или текстом — приглушаем подходящим способом
+      if (b.icon.setColor) b.icon.setColor(on ? '#ffffff' : '#8f9db6');
+      else b.icon.setAlpha(on ? 1 : 0.5);
       b.name.setColor(on ? '#e6ecf7' : '#7c8aa5');
     }
   }
