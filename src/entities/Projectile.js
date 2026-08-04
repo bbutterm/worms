@@ -1,0 +1,239 @@
+import { CFG, DEPTH } from '../config.js';
+import { has } from '../core/assets.js';
+
+/**
+ * Снаряд с самописной физикой.
+ *
+ * Интегрирование мелкими подшагами (CFG.SUBSTEPS на кадр), и внутри каждого
+ * подшага — попиксельная трассировка отрезка по маске ландшафта. Даже очень
+ * быстрый снаряд не проскочит сквозь тонкую перемычку.
+ */
+export class Projectile {
+  constructor(scene, x, y, vx, vy, weapon, owner) {
+    this.scene = scene;
+    this.terrain = scene.terrain;
+    this.weapon = weapon;
+    this.owner = owner;
+
+    this.x = x; this.y = y;
+    this.vx = vx; this.vy = vy;
+
+    this.alive = true;
+    this.age = 0;
+    this.fuseLeft = weapon.projectile.fuse || 0;
+    this.digging = false;
+    this.digLeft = 0;
+    this.resting = false;
+
+    // Если вылетаем из земли (боец в яме) — не считаем это попаданием,
+    // пока снаряд не окажется в воздухе.
+    this.insideGround = this.terrain.solidAt(x, y);
+    this.ownerGrace = 0.12;
+
+    this.trailPts = [];
+    this._buildView();
+  }
+
+  _buildView() {
+    const s = this.scene;
+    const p = this.weapon.projectile;
+    const key = this.weapon.spriteKey;
+
+    if (key && has(s, key)) {
+      this.view = s.add.image(this.x, this.y, key);
+      this.view.setDisplaySize(p.radius * 3.2, p.radius * 3.2);
+    } else {
+      this.view = s.add.circle(this.x, this.y, p.radius, this.weapon.color);
+      this.view.setStrokeStyle(2, 0x1a1a24, 0.6);
+    }
+    this.view.setDepth(DEPTH.PROJECTILE);
+
+    if (p.trail) {
+      this.trail = s.add.graphics().setDepth(DEPTH.PROJECTILE - 1);
+    }
+  }
+
+  update(dt) {
+    if (!this.alive) return;
+    this.age += dt;
+    if (this.ownerGrace > 0) this.ownerGrace -= dt;
+
+    if (this.fuseLeft > 0) {
+      this.fuseLeft -= dt;
+      if (this.fuseLeft <= 0) { this.detonate(this.x, this.y); return; }
+    }
+
+    const sdt = dt / CFG.SUBSTEPS;
+    for (let i = 0; i < CFG.SUBSTEPS && this.alive; i++) this._substep(sdt);
+
+    if (this.alive) this._syncView();
+  }
+
+  _substep(dt) {
+    const p = this.weapon.projectile;
+
+    if (this.digging) { this._digStep(dt); return; }
+
+    if (this.resting) {
+      // Лежит на земле (граната). Если землю под ней снесли — снова падает.
+      if (!this.terrain.solidInRow(this.x - p.radius, this.x + p.radius, this.y + p.radius + 1)) {
+        this.resting = false;
+      } else {
+        return;
+      }
+    }
+
+    // Интегрирование скорости: гравитация + ветер как горизонтальное ускорение
+    this.vx += this.scene.wind * p.windScale * dt;
+    this.vy += CFG.GRAVITY * p.gravityScale * dt;
+    if (p.drag > 0) {
+      const f = Math.exp(-p.drag * dt);
+      this.vx *= f; this.vy *= f;
+    }
+
+    const nx = this.x + this.vx * dt;
+    const ny = this.y + this.vy * dt;
+
+    // Вылет за пределы мира
+    if (nx < -80 || nx > this.terrain.width + 80 || ny > this.terrain.height + 120) {
+      if (ny > CFG.WATER_Y && nx > 0 && nx < this.terrain.width) {
+        this.scene.fx.splash(Math.min(Math.max(nx, 0), this.terrain.width), CFG.WATER_Y);
+      }
+      this.destroy();
+      return;
+    }
+    if (ny < -3000) { this.destroy(); return; }
+
+    // Прямое попадание в бойца
+    const wormHit = this._wormAt(nx, ny);
+    if (wormHit) { this.x = nx; this.y = ny; this.detonate(nx, ny); return; }
+
+    // Попиксельная трассировка по маске
+    const ray = this.terrain.raycast(this.x, this.y, nx, ny);
+
+    if (this.insideGround) {
+      // Ждём, пока снаряд покинет землю, только потом включаем коллизию
+      this.x = nx; this.y = ny;
+      if (!this.terrain.solidAt(nx, ny)) this.insideGround = false;
+      this._pushTrail();
+      return;
+    }
+
+    if (!ray.hit) {
+      this.x = nx; this.y = ny;
+      this._pushTrail();
+      return;
+    }
+
+    // --- касание земли ---
+    if (p.digRadius > 0) {
+      this.digging = true;
+      this.digLeft = p.digTime;
+      this.x = ray.x; this.y = ray.y;
+      this.scene.cameras.main.shake(90, 0.002);
+      return;
+    }
+
+    if (p.bounciness > 0) {
+      this._bounce(ray, p);
+      return;
+    }
+
+    this.x = ray.x; this.y = ray.y;
+    this.detonate(ray.x, ray.y);
+  }
+
+  _bounce(ray, p) {
+    const n = this.terrain.normalAt(ray.x, ray.y, 5);
+    const vn = this.vx * n.x + this.vy * n.y;
+
+    // Отражение с потерей энергии + касательное трение
+    let rx = this.vx - (1 + p.bounciness) * vn * n.x;
+    let ry = this.vy - (1 + p.bounciness) * vn * n.y;
+    const tvn = rx * n.x + ry * n.y;
+    const tx = rx - tvn * n.x, ty = ry - tvn * n.y;
+    rx = tvn * n.x + tx * p.friction;
+    ry = tvn * n.y + ty * p.friction;
+
+    this.vx = rx; this.vy = ry;
+    // Отодвигаем от поверхности, чтобы не залипнуть внутри пикселя
+    this.x = ray.freeX + n.x * 1.5;
+    this.y = ray.freeY + n.y * 1.5;
+
+    if (Math.hypot(this.vx, this.vy) < 42) {
+      this.vx = 0; this.vy = 0;
+      this.resting = true;
+    }
+  }
+
+  _digStep(dt) {
+    const p = this.weapon.projectile;
+    this.digLeft -= dt;
+
+    const speed = Math.hypot(this.vx, this.vy) || 1;
+    const step = Math.min(speed * dt, 6);
+    this.x += (this.vx / speed) * step;
+    this.y += (this.vy / speed) * step;
+
+    this.terrain.destroyCircle(this.x, this.y, p.digRadius);
+
+    if (this.digLeft <= 0 || this.y > this.terrain.height - 4) {
+      this.detonate(this.x, this.y);
+    }
+  }
+
+  _wormAt(x, y) {
+    for (const w of this.scene.worms) {
+      if (!w.alive) continue;
+      if (w === this.owner && this.ownerGrace > 0) continue;
+      if (w.containsPoint(x, y)) return w;
+    }
+    return null;
+  }
+
+  _pushTrail() {
+    if (!this.trail) return;
+    this.trailPts.push(this.x, this.y);
+    if (this.trailPts.length > 120) this.trailPts.splice(0, 2);
+  }
+
+  _syncView() {
+    this.view.setPosition(this.x, this.y);
+    if (this.view.setRotation && this.weapon.spriteKey && this.view.type === 'Image') {
+      this.view.setRotation(Math.atan2(this.vy, this.vx) + Math.PI / 2);
+    }
+    if (this.fuseLeft > 0) {
+      // мигание фитиля
+      const blink = Math.sin(this.age * 22) > 0;
+      this.view.setAlpha(blink ? 1 : 0.55);
+    }
+    if (this.trail) {
+      this.trail.clear();
+      const pts = this.trailPts;
+      for (let i = 2; i < pts.length; i += 2) {
+        const a = (i / pts.length) * 0.45;
+        this.trail.lineStyle(2, this.weapon.color, a);
+        this.trail.lineBetween(pts[i - 2], pts[i - 1], pts[i], pts[i + 1]);
+      }
+    }
+  }
+
+  detonate(x, y) {
+    if (!this.alive) return;
+    this.alive = false;
+    const spawned = this.weapon.onDetonate(this.scene, this, x, y);
+    this._cleanupView();
+    if (spawned && spawned.length) this.scene.projectiles.push(...spawned);
+  }
+
+  destroy() {
+    if (!this.alive) return;
+    this.alive = false;
+    this._cleanupView();
+  }
+
+  _cleanupView() {
+    this.view.destroy();
+    if (this.trail) this.trail.destroy();
+  }
+}

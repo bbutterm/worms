@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+<meta name="theme-color" content="#0b1021" />
+<title>Worms Prototype</title>
+<style>
+  html, body {
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    height: 100%;
+    background: #0b1021;
+    overflow: hidden;
+    overscroll-behavior: none;
+    touch-action: none;
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-tap-highlight-color: transparent;
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  #game { width: 100%; height: 100%; }
+  #game canvas { display: block; }
+  #fatal {
+    position: fixed; inset: 0; display: none;
+    align-items: center; justify-content: center;
+    color: #ffb4b4; background: #0b1021; text-align: center;
+    padding: 24px; line-height: 1.5; font-size: 15px;
+  }
+</style>
+</head>
+<body>
+<div id="game"></div>
+<div id="fatal"></div>
+
+<!-- Telegram WebApp SDK: no-op в обычном браузере -->
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+
+<!-- Phaser 3 через CDN, с фолбэком на второй хост -->
+<script>
+  (function loadPhaser() {
+    var sources = [
+      'https://cdn.jsdelivr.net/npm/phaser@3.80.1/dist/phaser.min.js',
+      'https://unpkg.com/phaser@3.80.1/dist/phaser.min.js',
+      'https://cdnjs.cloudflare.com/ajax/libs/phaser/3.80.1/phaser.min.js',
+      './vendor/phaser.min.js'   // локальная копия на случай, если CDN недоступен
+    ];
+    var i = 0;
+    function next() {
+      if (i >= sources.length) {
+        var el = document.getElementById('fatal');
+        el.style.display = 'flex';
+        el.textContent = 'Не удалось загрузить Phaser 3 ни с одного CDN. Проверьте сеть.';
+        return;
+      }
+      var s = document.createElement('script');
+      s.src = sources[i++];
+      s.onload = boot;
+      s.onerror = next;
+      document.head.appendChild(s);
+    }
+    function boot() {
+      var m = document.createElement('script');
+      m.type = 'module';
+      m.src = './src/main.js';
+      document.body.appendChild(m);
+    }
+    next();
+  })();
+</script>
+</body>
+</html>
