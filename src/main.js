@@ -24,7 +24,10 @@ const game = new Phaser.Game({
     roundPixels: false,
   },
   input: {
-    activePointers: 2,
+    // Три, а не два: Phaser отдаёт под касания указатели с индекса 1 и
+    // строго меньше activePointers, поэтому при 2 второй палец не
+    // регистрируется вовсе и пинч не работает.
+    activePointers: 3,
   },
   scene: [BootScene, GameScene],
 });

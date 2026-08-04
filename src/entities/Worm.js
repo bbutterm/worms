@@ -54,7 +54,8 @@ export class Worm {
       this.eye = s.add.rectangle(this.x, this.y - CFG.WORM_H + 9, 5, 5, 0x141821)
         .setDepth(DEPTH.WORM + 1);
     }
-    this.view.setDepth(DEPTH.WORM);
+    s.rig.world(this.view.setDepth(DEPTH.WORM));
+    if (this.eye) s.rig.world(this.eye);
 
     // Червяки в оригинале одинаковые, поэтому команду показываем цветом
     // числа здоровья и полоской под ним — как в самой игре.
@@ -62,21 +63,25 @@ export class Worm {
       fontFamily: 'monospace', fontSize: '14px', color: hexColor(color),
       stroke: '#101420', strokeThickness: 4,
     }).setOrigin(0.5, 0.5).setDepth(DEPTH.WORM + 2);
+    s.rig.world(this.label);
 
     this.barBg = s.add.rectangle(this.x, this.y - CFG.WORM_H - 6, HP_BAR_W + 2, 5, 0x101420, 0.85)
       .setOrigin(0.5, 0.5).setDepth(DEPTH.WORM + 2);
+    s.rig.world(this.barBg);
     this.bar = s.add.rectangle(this.x - HP_BAR_W / 2, this.y - CFG.WORM_H - 6, HP_BAR_W, 3, color)
       .setOrigin(0, 0.5).setDepth(DEPTH.WORM + 3);
+    s.rig.world(this.bar);
 
     const markerKey = `marker_${this.team % 2}`;
     if (has(s, markerKey)) {
       this.marker = s.add.sprite(this.x, this.y - CFG.WORM_H - 40, markerKey)
         .setDepth(DEPTH.WORM + 2).setVisible(false);
+      s.rig.world(this.marker);
       this.marker.play(markerKey);
       this.markerSprited = true;
     } else {
-      this.marker = s.add.triangle(this.x, this.y - CFG.WORM_H - 40, 0, 0, 14, 0, 7, 12, color)
-        .setDepth(DEPTH.WORM + 2).setVisible(false);
+      this.marker = s.rig.world(s.add.triangle(this.x, this.y - CFG.WORM_H - 40, 0, 0, 14, 0, 7, 12, color)
+        .setDepth(DEPTH.WORM + 2).setVisible(false));
     }
   }
 
@@ -342,8 +347,8 @@ export class Worm {
     if (!has(s, 'grave')) return;
     const top = this.terrain.surfaceYAt(x, Math.max(0, y - 60));
     if (top === null || top > CFG.DROWN_Y) return;
-    const grave = s.add.image(x, top + 1, 'grave')
-      .setOrigin(0.5, 1).setDepth(DEPTH.WORM - 1).setAlpha(0);
+    const grave = s.rig.world(s.add.image(x, top + 1, 'grave')
+      .setOrigin(0.5, 1).setDepth(DEPTH.WORM - 1).setAlpha(0));
     s.tweens.add({ targets: grave, alpha: 1, duration: 300 });
   }
 

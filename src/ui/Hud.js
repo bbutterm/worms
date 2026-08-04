@@ -15,7 +15,8 @@ export class Hud {
     this.moveButtons = [];
 
     const W = CFG.VIEW_W;
-    const fix = (o, d = DEPTH.HUD) => o.setScrollFactor(0).setDepth(d);
+    // Всё в интерфейсную камеру: она не масштабируется зумом и не трясётся
+    const fix = (o, d = DEPTH.HUD) => scene.rig.ui(o.setScrollFactor(0).setDepth(d));
 
     // --- верхняя панель ---
     // Раскладка по колонкам, чтобы блоки гарантированно не наезжали:
@@ -108,6 +109,7 @@ export class Hud {
     // Возврат камеры: без него, уведя её посмотреть на противника,
     // игрок остаётся без прицела и без способа вернуться
     this._makeTapButton(96, CFG.VIEW_H - 152, 64, 64, '⌖', () => scene.focusCamera());
+    this._makeTapButton(1052, CFG.VIEW_H - 216, 60, 60, '⛶', () => scene.rig.toggleOverview());
 
     this.hint = fix(scene.add.text(640, CFG.VIEW_H - 72,
       'держи ОГОНЬ — набор силы, отпусти — выстрел · ▲▼ угол\n'
@@ -122,13 +124,13 @@ export class Hud {
 
   _makeHoldButton(x, y, w, h, glyph, action) {
     const s = this.scene;
-    const rect = s.add.rectangle(x, y, w, h, 0x121a2c, 0.75).setOrigin(0, 0)
-      .setScrollFactor(0).setDepth(DEPTH.HUD);
+    const rect = s.rig.ui(s.add.rectangle(x, y, w, h, 0x121a2c, 0.75).setOrigin(0, 0)
+      .setScrollFactor(0).setDepth(DEPTH.HUD));
     rect.setStrokeStyle(2, 0x2f3d5c);
     rect.setInteractive({ useHandCursor: true });
-    s.add.text(x + w / 2, y + h / 2, glyph, {
+    s.rig.ui(s.add.text(x + w / 2, y + h / 2, glyph, {
       fontFamily: 'monospace', fontSize: '22px', color: '#cfd8e8',
-    }).setOrigin(0.5).setScrollFactor(0).setDepth(DEPTH.HUD + 1);
+    }).setOrigin(0.5).setScrollFactor(0).setDepth(DEPTH.HUD + 1));
 
     rect.on('pointerdown', () => {
       // jumpQueued — одноразовый флаг, его сцена сама сбрасывает за кадр
@@ -149,13 +151,13 @@ export class Hud {
   /** Обычная кнопка: срабатывает по нажатию, удержание ничего не копит. */
   _makeTapButton(x, y, w, h, glyph, onTap) {
     const s = this.scene;
-    const rect = s.add.rectangle(x, y, w, h, 0x121a2c, 0.75).setOrigin(0, 0)
-      .setScrollFactor(0).setDepth(DEPTH.HUD);
+    const rect = s.rig.ui(s.add.rectangle(x, y, w, h, 0x121a2c, 0.75).setOrigin(0, 0)
+      .setScrollFactor(0).setDepth(DEPTH.HUD));
     rect.setStrokeStyle(2, 0x2f3d5c);
     rect.setInteractive({ useHandCursor: true });
-    s.add.text(x + w / 2, y + h / 2, glyph, {
+    s.rig.ui(s.add.text(x + w / 2, y + h / 2, glyph, {
       fontFamily: 'monospace', fontSize: '24px', color: '#cfd8e8',
-    }).setOrigin(0.5).setScrollFactor(0).setDepth(DEPTH.HUD + 1);
+    }).setOrigin(0.5).setScrollFactor(0).setDepth(DEPTH.HUD + 1));
 
     rect.on('pointerdown', () => { rect.setFillStyle(0x1e2a45, 0.9); onTap(); });
     const release = () => rect.setFillStyle(0x121a2c, 0.75);
@@ -173,13 +175,13 @@ export class Hud {
    */
   _makeFireButton(cx, cy, r) {
     const s = this.scene;
-    const circle = s.add.circle(cx, cy, r, 0x7a2230, 0.92)
-      .setScrollFactor(0).setDepth(DEPTH.HUD);
+    const circle = s.rig.ui(s.add.circle(cx, cy, r, 0x7a2230, 0.92)
+      .setScrollFactor(0).setDepth(DEPTH.HUD));
     circle.setStrokeStyle(3, 0xff6b6b);
     circle.setInteractive(new Phaser.Geom.Circle(r, r, r), Phaser.Geom.Circle.Contains);
-    s.add.text(cx, cy, 'ОГОНЬ', {
+    s.rig.ui(s.add.text(cx, cy, 'ОГОНЬ', {
       fontFamily: 'monospace', fontSize: '15px', color: '#ffe0e0',
-    }).setOrigin(0.5).setScrollFactor(0).setDepth(DEPTH.HUD + 1);
+    }).setOrigin(0.5).setScrollFactor(0).setDepth(DEPTH.HUD + 1));
 
     circle.on('pointerdown', () => {
       s.moveInput.fire = true;
@@ -197,11 +199,11 @@ export class Hud {
 
     // Шкала заряда над кнопкой
     const bw = 150;
-    this.chargeBg = s.add.rectangle(cx - bw / 2, cy - r - 20, bw, 12, 0x1a2233, 0.9)
-      .setOrigin(0, 0.5).setScrollFactor(0).setDepth(DEPTH.HUD);
+    this.chargeBg = s.rig.ui(s.add.rectangle(cx - bw / 2, cy - r - 20, bw, 12, 0x1a2233, 0.9)
+      .setOrigin(0, 0.5).setScrollFactor(0).setDepth(DEPTH.HUD));
     this.chargeBg.setStrokeStyle(1, 0x3a4a66);
-    this.chargeBar = s.add.rectangle(cx - bw / 2, cy - r - 20, 0, 12, 0xffd166)
-      .setOrigin(0, 0.5).setScrollFactor(0).setDepth(DEPTH.HUD + 1);
+    this.chargeBar = s.rig.ui(s.add.rectangle(cx - bw / 2, cy - r - 20, 0, 12, 0xffd166)
+      .setOrigin(0, 0.5).setScrollFactor(0).setDepth(DEPTH.HUD + 1));
     this.chargeWidth = bw;
   }
 

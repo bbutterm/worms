@@ -26,11 +26,12 @@ export class AimController {
     this.dragX = 0; this.dragY = 0;
     this.camStart = 0;
 
-    this.gfx = scene.add.graphics().setDepth(DEPTH.AIM);
+    this.gfx = scene.rig.world(scene.add.graphics().setDepth(DEPTH.AIM));
     this.info = scene.add.text(0, 0, '', {
       fontFamily: 'monospace', fontSize: '14px', color: '#ffffff',
       stroke: '#0d1018', strokeThickness: 4,
     }).setOrigin(0.5, 1).setDepth(DEPTH.AIM);
+    scene.rig.world(this.info);
     this.info.setVisible(false);
 
     scene.input.on('pointerdown', this.onDown, this);
@@ -47,23 +48,23 @@ export class AimController {
   }
 
   onDown(pointer) {
-    if (this.scene.hud.isOverUI(pointer)) return;
+    if (this.scene.hud.isOverUI(pointer) || this.scene.rig.pinching) return;
 
     const w = this.worm;
     const canAim = this.scene.canPlayerAct() && w && w.alive;
     const o = this.origin();
-    const near = canAim && Math.hypot(pointer.worldX - o.x, pointer.worldY - o.y) <= CFG.AIM_GRAB_RADIUS;
+    // pointer.worldX смотрит на камеру неба — мировую точку берём у рига
+    const p = this.scene.rig.worldPoint(pointer);
+    const near = canAim && Math.hypot(p.x - o.x, p.y - o.y) <= CFG.AIM_GRAB_RADIUS;
 
     if (near) {
       this.mode = 'aim';
-      this.startX = pointer.worldX;
-      this.startY = pointer.worldY;
+      this.startX = p.x;
+      this.startY = p.y;
       this.dragX = 0; this.dragY = 0;
     } else {
       this.mode = 'pan';
-      this.startX = pointer.x;
-      this.camStart = this.scene.cameras.main.scrollX;
-      this.scene.setCameraManual(true);
+      this.scene.rig.panStart(pointer);
     }
   }
 
@@ -71,19 +72,18 @@ export class AimController {
     if (!this.mode || !pointer.isDown) return;
 
     if (this.mode === 'pan') {
-      const cam = this.scene.cameras.main;
-      cam.scrollX = Phaser.Math.Clamp(
-        this.camStart - (pointer.x - this.startX) / cam.zoom,
-        0, this.scene.terrain.width - CFG.VIEW_W,
-      );
+      this.scene.rig.panMove(pointer);
       return;
     }
+    if (this.scene.rig.pinching) { this.cancel(); return; }
 
-    this.dragX = pointer.worldX - this.startX;
-    this.dragY = pointer.worldY - this.startY;
+    const p = this.scene.rig.worldPoint(pointer);
+    this.dragX = p.x - this.startX;
+    this.dragY = p.y - this.startY;
   }
 
   onUp() {
+    this.scene.rig.panEnd();
     if (this.mode === 'aim') {
       const shot = this.computeShot();
       if (shot) {
@@ -180,9 +180,9 @@ export class AimController {
 
     const key = `crosshair_${team}`;
     if (!this.crosshair) {
-      this.crosshair = has(s, key)
+      this.crosshair = s.rig.world(has(s, key)
         ? s.add.image(0, 0, key).setDepth(DEPTH.AIM)
-        : s.add.circle(0, 0, 6).setStrokeStyle(2, 0xffffff, 0.8).setDepth(DEPTH.AIM);
+        : s.add.circle(0, 0, 6).setStrokeStyle(2, 0xffffff, 0.8).setDepth(DEPTH.AIM));
     } else if (this.crosshair.setTexture && has(s, key)) {
       this.crosshair.setTexture(key); // прицел перекрашивается под команду
     }

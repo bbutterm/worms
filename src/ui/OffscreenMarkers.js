@@ -11,13 +11,12 @@ import { CFG, DEPTH, TEAM_COLORS } from '../config.js';
 export class OffscreenMarkers {
   constructor(scene) {
     this.scene = scene;
-    this.gfx = scene.add.graphics().setScrollFactor(0).setDepth(DEPTH.HUD - 1);
+    this.gfx = scene.rig.ui(scene.add.graphics().setScrollFactor(0).setDepth(DEPTH.HUD - 1));
     this.labels = [];
   }
 
   update() {
     const scene = this.scene;
-    const cam = scene.cameras.main;
     const m = CFG.CAM_EDGE_MARGIN;
     this.gfx.clear();
 
@@ -27,7 +26,7 @@ export class OffscreenMarkers {
     const right = [];
     for (const w of scene.worms) {
       if (!w.alive) continue;
-      const sx = w.x - cam.scrollX;
+      const sx = scene.rig.screenX(w.x);
       if (sx < m) left.push(w);
       else if (sx > CFG.VIEW_W - m) right.push(w);
     }
@@ -77,6 +76,7 @@ export class OffscreenMarkers {
         fontFamily: 'monospace', fontSize: '12px',
         stroke: '#0d1018', strokeThickness: 3,
       }).setScrollFactor(0).setDepth(DEPTH.HUD - 1);
+      this.scene.rig.ui(this.labels[i]);
     }
     const l = this.labels[i];
     l.setOrigin(originX, 0.5);

@@ -9,6 +9,7 @@ import { Hud } from '../ui/Hud.js';
 import { Fx } from '../ui/Fx.js';
 import { AimController } from '../ui/AimController.js';
 import { OffscreenMarkers } from '../ui/OffscreenMarkers.js';
+import { CameraRig } from '../ui/CameraRig.js';
 
 export default class GameScene extends Phaser.Scene {
   constructor() { super('Game'); }
@@ -19,8 +20,6 @@ export default class GameScene extends Phaser.Scene {
     this.worms = [];
     this.projectiles = [];
     this.followTarget = null;
-    this.cameraManual = false;
-    this.camIdle = 0;
     this.moveInput = {
       left: false, right: false, jumpQueued: false,
       aimUp: false, aimDown: false, fire: false,
@@ -33,6 +32,10 @@ export default class GameScene extends Phaser.Scene {
     this.charge = 0;
     this._lastNow = 0;   // отметка системных часов для realDt
     this.gameOverUi = null;
+
+    // Риг камер создаётся первым: каждый последующий объект сразу
+    // приписывается к своей камере.
+    this.rig = new CameraRig(this);
 
     const biome = this._chooseBiome();
 
@@ -49,16 +52,8 @@ export default class GameScene extends Phaser.Scene {
     this._spawnWorms();
     this._setupKeyboard();
 
-    const cam = this.cameras.main;
-    cam.setBounds(0, 0, CFG.WORLD_W, CFG.WORLD_H);
-    cam.setBackgroundColor(biome.fallback.sky[1]);
-
+    this.rig.bgCam.setBackgroundColor(biome.fallback.sky[1]);
     this.turn.begin(this.rng.int(0, CFG.TEAMS - 1));
-    if (this.turn.activeWorm) {
-      cam.scrollX = Phaser.Math.Clamp(
-        this.turn.activeWorm.x - CFG.VIEW_W / 2, 0, CFG.WORLD_W - CFG.VIEW_W,
-      );
-    }
 
     this.events.once('shutdown', this._shutdown, this);
   }
@@ -78,11 +73,11 @@ export default class GameScene extends Phaser.Scene {
     // нижняя (почти чёрная) часть должна остаться за кадром.
     if (has(this, `${biome.id}_sky`)) {
       const skyH = meta(`terrain_${biome.id}`)?.skyH ?? CFG.VIEW_H;
-      this.add.image(0, 0, `${biome.id}_sky`)
+      this.rig.bg(this.add.image(0, 0, `${biome.id}_sky`)
         .setOrigin(0, 0)
         .setDisplaySize(CFG.VIEW_W, Math.max(skyH, CFG.VIEW_H))
         .setScrollFactor(0)
-        .setDepth(DEPTH.SKY);
+        .setDepth(DEPTH.SKY));
     } else {
       const key = 'sky-tex';
       if (this.textures.exists(key)) this.textures.remove(key);
@@ -94,9 +89,9 @@ export default class GameScene extends Phaser.Scene {
       ctx.fillStyle = g;
       ctx.fillRect(0, 0, 8, CFG.VIEW_H);
       tex.refresh();
-      this.add.image(0, 0, key).setOrigin(0, 0)
+      this.rig.bg(this.add.image(0, 0, key).setOrigin(0, 0)
         .setDisplaySize(CFG.VIEW_W, CFG.VIEW_H)
-        .setScrollFactor(0).setDepth(DEPTH.SKY);
+        .setScrollFactor(0).setDepth(DEPTH.SKY));
     }
 
     this._buildParallax(biome);
@@ -110,10 +105,10 @@ export default class GameScene extends Phaser.Scene {
     // Фон тайлится по горизонтали. Верхняя кромка у него силуэтная (с альфой)
     // и красиво переходит в небо, а нижняя обрезана «по живому» — поэтому
     // сажаем низ на линию воды, где её закрывает земля и водная плёнка.
-    this.add.tileSprite(0, CFG.WATER_Y - src.height, CFG.WORLD_W, src.height, key)
+    this.rig.world(this.add.tileSprite(0, CFG.WATER_Y - src.height, CFG.WORLD_W, src.height, key)
       .setOrigin(0, 0)
       .setScrollFactor(0.45, 1)
-      .setDepth(DEPTH.PARALLAX);
+      .setDepth(DEPTH.PARALLAX));
   }
 
   _buildTerrain(biome) {
@@ -132,17 +127,20 @@ export default class GameScene extends Phaser.Scene {
       const key = `terrain-tex-${i}`;
       if (this.textures.exists(key)) this.textures.remove(key);
       const tex = this.textures.addCanvas(key, chunk.canvas);
-      this.add.image(chunk.x0, 0, key).setOrigin(0, 0).setDepth(DEPTH.TERRAIN);
+      this.rig.world(this.add.image(chunk.x0, 0, key).setOrigin(0, 0).setDepth(DEPTH.TERRAIN));
       return tex;
     });
     this.terrain.dirtyChunks.clear();
   }
 
   _buildWater(biome) {
-    this.add.rectangle(0, CFG.WATER_Y, CFG.WORLD_W, CFG.WORLD_H - CFG.WATER_Y, biome.water, biome.waterAlpha)
-      .setOrigin(0, 0).setDepth(DEPTH.WATER);
-    this.add.rectangle(0, CFG.WATER_Y, CFG.WORLD_W, 3, 0xffffff, 0.25)
-      .setOrigin(0, 0).setDepth(DEPTH.WATER);
+    // Вода уходит заметно ниже мира: при отдалении под землёй не должно
+    // зиять ничего, там продолжается вода.
+    const deep = CFG.WORLD_H - CFG.WATER_Y + 900;
+    this.rig.world(this.add.rectangle(0, CFG.WATER_Y, CFG.WORLD_W, deep, biome.water, biome.waterAlpha)
+      .setOrigin(0, 0).setDepth(DEPTH.WATER));
+    this.rig.world(this.add.rectangle(0, CFG.WATER_Y, CFG.WORLD_W, 3, 0xffffff, 0.25)
+      .setOrigin(0, 0).setDepth(DEPTH.WATER));
   }
 
   _spawnWorms() {
@@ -278,7 +276,7 @@ export default class GameScene extends Phaser.Scene {
 
     if (left !== right) {
       w.walk(left ? -1 : 1, dt);
-      this.cameraManual = false; // пошли — камера снова ведёт бойца
+      this.rig.manual = false; // пошли — камера снова ведёт бойца
     }
 
     const jump = this.moveInput.jumpQueued || Phaser.Input.Keyboard.JustDown(k.jump);
@@ -347,40 +345,11 @@ export default class GameScene extends Phaser.Scene {
   }
 
   _updateCamera(dt, realDt) {
-    const cam = this.cameras.main;
-
-    // Камера, уведённая рукой, сама возвращается к бойцу — иначе игрок,
-    // отошедший посмотреть на противника, остаётся без прицела и без
-    // способа вернуться.
-    if (this.cameraManual) {
-      if (this.input.activePointer.isDown) { this.camIdle = 0; return; }
-      this.camIdle += realDt;
-      if (this.camIdle < CFG.CAM_IDLE_RETURN) return;
-      this.cameraManual = false;
-    }
-
-    const target = this._cameraTarget();
-    if (!target) return;
-
-    let desired;
-    if (this.turn.state === STATE.FLYING) {
-      desired = target.x - CFG.VIEW_W / 2;   // снаряд держим по центру
-    } else {
-      // За бойцом идём с мёртвой зоной: камера трогается, только когда он
-      // подходит к краю. Иначе она бы сразу съедала кадрирование хода.
-      const sx = target.x - cam.scrollX;
-      const m = CFG.CAM_DEADZONE;
-      if (sx < m) desired = target.x - m;
-      else if (sx > CFG.VIEW_W - m) desired = target.x - (CFG.VIEW_W - m);
-      else return;
-    }
-
-    desired = Phaser.Math.Clamp(desired, 0, CFG.WORLD_W - CFG.VIEW_W);
-    const lerp = this.turn.state === STATE.FLYING ? CFG.CAM_LERP_FAST : CFG.CAM_LERP;
-    cam.scrollX += (desired - cam.scrollX) * Math.min(1, lerp * dt * 60);
+    const flying = this.turn.state === STATE.FLYING && this.projectiles.length > 0;
+    this.rig.update(dt, realDt, this._cameraTarget(), flying ? 'center' : 'deadzone');
   }
 
-  /** За кем camera следит сейчас: за снарядом в полёте, иначе за бойцом. */
+  /** За кем камера следит сейчас: за снарядом в полёте, иначе за бойцом. */
   _cameraTarget() {
     if (this.turn.state === STATE.FLYING && this.projectiles.length) {
       return this.projectiles[0];
@@ -391,13 +360,7 @@ export default class GameScene extends Phaser.Scene {
 
   /** Кнопка «к бойцу»: снимает ручной режим и мгновенно наводится на цель. */
   focusCamera() {
-    this.cameraManual = false;
-    this.camIdle = 0;
-    const target = this._cameraTarget();
-    if (!target) return;
-    this.cameras.main.scrollX = Phaser.Math.Clamp(
-      target.x - CFG.VIEW_W / 2, 0, CFG.WORLD_W - CFG.VIEW_W,
-    );
+    this.rig.focus(this._cameraTarget());
   }
 
   /**
@@ -411,15 +374,11 @@ export default class GameScene extends Phaser.Scene {
       const near = enemies.reduce((a, b) =>
         (Math.abs(b.x - worm.x) < Math.abs(a.x - worm.x) ? b : a));
       // Оба влезают в кадр — центрируем между ними, иначе держим бойца
-      if (Math.abs(near.x - worm.x) < CFG.VIEW_W - 260) {
+      if (Math.abs(near.x - worm.x) < this.rig.visibleW - 260) {
         center = (worm.x + near.x) / 2;
       }
     }
-    this.cameraManual = false;
-    this.camIdle = 0;
-    this.cameras.main.scrollX = Phaser.Math.Clamp(
-      center - CFG.VIEW_W / 2, 0, CFG.WORLD_W - CFG.VIEW_W,
-    );
+    this.rig.frame(center, worm.centerY);
   }
 
   // -------------------------------------------------------------- геймплей
@@ -430,7 +389,7 @@ export default class GameScene extends Phaser.Scene {
 
   setWind(v) { this.wind = v; }
 
-  setCameraManual(on) { this.cameraManual = on; this.camIdle = 0; }
+  setCameraManual(on) { this.rig.manual = on; this.rig.idle = 0; }
 
   /** Выстрел активного бойца. Ход сразу переходит дальше. */
   fireActiveWorm(vx, vy) {
@@ -464,7 +423,7 @@ export default class GameScene extends Phaser.Scene {
   explode(x, y, cfg, owner = null) {
     this.terrain.destroyCircle(x, y, cfg.radius);
     this.fx.explosion(x, y, cfg.radius);
-    this.cameras.main.shake(220, cfg.shake ?? 0.006);
+    this.rig.shake(220, cfg.shake ?? 0.006);
 
     for (const w of this.worms) {
       if (!w.alive) continue;
@@ -486,7 +445,7 @@ export default class GameScene extends Phaser.Scene {
   onWormDied(worm) {
     this.fx.explosion(worm.x, worm.centerY, 26);
     this.terrain.destroyCircle(worm.x, worm.centerY, 22);
-    this.cameras.main.shake(160, 0.004);
+    this.rig.shake(160, 0.004);
     // Ход обрывается, если погиб тот, кто ходит, либо если команда выбита
     // целиком — иначе победа ждала бы истечения 30-секундного таймера.
     if (this.turn.state === STATE.AIM
@@ -514,18 +473,20 @@ export default class GameScene extends Phaser.Scene {
     const text = winner >= 0 ? `Победа: ${TEAM_NAMES[winner]}!` : 'Ничья';
     const color = winner >= 0 ? TEAM_COLORS[winner] : 0xffffff;
 
-    const shade = this.add.rectangle(0, 0, CFG.VIEW_W, CFG.VIEW_H, 0x070b14, 0.55)
-      .setOrigin(0, 0).setScrollFactor(0).setDepth(DEPTH.HUD + 10);
+    const shade = this.rig.ui(this.add.rectangle(0, 0, CFG.VIEW_W, CFG.VIEW_H, 0x070b14, 0.55)
+      .setOrigin(0, 0).setScrollFactor(0).setDepth(DEPTH.HUD + 10));
     const title = this.add.text(CFG.VIEW_W / 2, CFG.VIEW_H / 2 - 26, text, {
       fontFamily: 'monospace', fontSize: '44px',
       color: `#${color.toString(16).padStart(6, '0')}`,
       stroke: '#0d1018', strokeThickness: 8,
     }).setOrigin(0.5).setScrollFactor(0).setDepth(DEPTH.HUD + 11);
+    this.rig.ui(title);
     const sub = this.add.text(CFG.VIEW_W / 2, CFG.VIEW_H / 2 + 30,
       'тап или R — новая карта', {
         fontFamily: 'monospace', fontSize: '18px', color: '#c3cee0',
         stroke: '#0d1018', strokeThickness: 5,
       }).setOrigin(0.5).setScrollFactor(0).setDepth(DEPTH.HUD + 11);
+    this.rig.ui(sub);
 
     this.gameOverUi = [shade, title, sub];
 
@@ -536,6 +497,7 @@ export default class GameScene extends Phaser.Scene {
 
   _shutdown() {
     this.aim?.destroy();
+    this.rig?.destroy();
     this.offscreen?.destroy();
     this.projectiles = [];
     this.worms = [];

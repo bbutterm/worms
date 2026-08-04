@@ -49,10 +49,10 @@ export class Projectile {
       this.view = s.add.circle(this.x, this.y, p.radius, this.weapon.color);
       this.view.setStrokeStyle(2, 0x1a1a24, 0.6);
     }
-    this.view.setDepth(DEPTH.PROJECTILE);
+    s.rig.world(this.view.setDepth(DEPTH.PROJECTILE));
 
     if (p.trail) {
-      this.trail = s.add.graphics().setDepth(DEPTH.PROJECTILE - 1);
+      this.trail = s.rig.world(s.add.graphics().setDepth(DEPTH.PROJECTILE - 1));
     }
   }
 
@@ -140,7 +140,7 @@ export class Projectile {
       this.digging = true;
       this.digLeft = p.digTime;
       this.x = ray.x; this.y = ray.y;
-      this.scene.cameras.main.shake(90, 0.002);
+      this.scene.rig.shake(90, 0.002);
       return;
     }
 
