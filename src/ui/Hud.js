@@ -151,17 +151,18 @@ export class Hud {
     const FR = 54;        // радиус «Огня»
     const gap = 10;
 
-    // Слева: ходьба внизу, прыжок и возврат камеры над ними
+    // Руки разведены по смыслу: слева — перемещение и камера, справа —
+    // всё, что относится к выстрелу: угол, прыжок и сам «Огонь».
     const lx = 24, lx2 = lx + B + gap;
     const rowLow = H - B - 14;
     const rowHigh = rowLow - B - gap;
 
     this._hold(lx, rowLow, B, 'left', 'left');
     this._hold(lx2, rowLow, B, 'right', 'right');
-    this._hold(lx, rowHigh, B, 'jump', 'jumpQueued');
+    this._tap(lx, rowHigh, B, 'overview', () => s.rig.toggleOverview());
     this._tap(lx2, rowHigh, B, 'focus', () => s.focusCamera());
 
-    // Справа: «Огонь» в углу, слева от него угол прицела, над ними — камера.
+    // Справа: «Огонь» в углу, слева от него угол прицела, над ним прыжок.
     // Раскладка считается от круга, иначе квадраты наезжают на него.
     const fireCx = W - 30 - FR, fireCy = H - 30 - FR;
     const ax = fireCx - FR - gap - B;
@@ -171,7 +172,7 @@ export class Hud {
 
     this._hold(ax, aimHigh, B, 'up', 'aimUp');
     this._hold(ax, aimLow, B, 'down', 'aimDown');
-    this._tap(fireCx - B / 2, camRow, B, 'overview', () => s.rig.toggleOverview());
+    this._hold(fireCx - B / 2, camRow, B, 'jump', 'jumpQueued');
 
     // Полного экрана нет в Safari на iPhone — там кнопку не показываем
     if (s.scale.fullscreen.available) {
@@ -189,7 +190,8 @@ export class Hud {
       fire: { x: fireCx, y: fireCy },
       aimUp: { x: ax + B / 2, y: aimHigh + B / 2 },
       aimDown: { x: ax + B / 2, y: aimLow + B / 2 },
-      overview: { x: fireCx, y: camRow + B / 2 },
+      jump: { x: fireCx, y: camRow + B / 2 },
+      overview: { x: lx + B / 2, y: rowHigh + B / 2 },
       focus: { x: lx2 + B / 2, y: rowHigh + B / 2 },
       left: { x: lx + B / 2, y: rowLow + B / 2 },
       right: { x: lx2 + B / 2, y: rowLow + B / 2 },
@@ -208,27 +210,44 @@ export class Hud {
     return img;
   }
 
+  /**
+   * Регистрирует кнопку, которую можно держать.
+   *
+   * Кнопка запоминает палец, который её нажал, и отпускается только им.
+   * Иначе получалось так: держишь «Огонь» одним пальцем, поправляешь угол
+   * другим — и на отпускании второго пальца выстрел уходил сам.
+   */
+  _register(img, onDown, onUp) {
+    const entry = { pointerId: null, release: null };
+    entry.release = (pointer) => {
+      if (pointer && entry.pointerId !== null && pointer.id !== entry.pointerId) return;
+      entry.pointerId = null;
+      this._unpress(img);
+      onUp?.();
+    };
+    img.on('pointerdown', (pointer) => {
+      entry.pointerId = pointer?.id ?? null;
+      this._press(img);
+      onDown?.();
+    });
+    img.on('pointerup', (pointer) => entry.release(pointer));
+    img.on('pointerout', (pointer) => entry.release(pointer));
+    this.holdButtons.push(entry);
+    return entry;
+  }
+
   _hold(x, y, size, iconName, action) {
     const s = this.scene;
     const img = this._plate(x, y, size, iconName);
-    img.on('pointerdown', () => { this._press(img); s.moveInput[action] = true; });
-    const release = () => {
-      this._unpress(img);
+    this._register(img,
+      () => { s.moveInput[action] = true; },
       // jumpQueued — одноразовый флаг, его сцена сама сбрасывает за кадр
-      if (action !== 'jumpQueued') s.moveInput[action] = false;
-    };
-    img.on('pointerup', release);
-    img.on('pointerout', release);
-    this.holdButtons.push({ release });
+      () => { if (action !== 'jumpQueued') s.moveInput[action] = false; });
   }
 
   _tap(x, y, size, iconName, onTap) {
     const img = this._plate(x, y, size, iconName);
-    img.on('pointerdown', () => { this._press(img); onTap(); });
-    const release = () => this._unpress(img);
-    img.on('pointerup', release);
-    img.on('pointerout', release);
-    this.holdButtons.push({ release });
+    this._register(img, onTap, null);
   }
 
   /**
@@ -244,11 +263,9 @@ export class Hud {
       Phaser.Geom.Circle.Contains);
     this.fix(s.add.text(cx, cy, 'ОГОНЬ', font(16, 800)).setOrigin(0.5), DEPTH.HUD + 1);
 
-    img.on('pointerdown', () => { this._press(img); s.moveInput.fire = true; });
-    const release = () => { this._unpress(img); s.moveInput.fire = false; };
-    img.on('pointerup', release);
-    img.on('pointerout', release);
-    this.holdButtons.push({ release });
+    this._register(img,
+      () => { s.moveInput.fire = true; },
+      () => { s.moveInput.fire = false; });
     this.uiRects.push({ x: cx - r, y: cy - r, w: r * 2, h: r * 2 });
 
     // Шкала заряда — дугой вокруг самой кнопки: видно, не отводя глаз
@@ -260,7 +277,12 @@ export class Hud {
 
   _press(img) { img.setScale(0.94).setTint(0xc9c9c9); }
   _unpress(img) { img.setScale(1).clearTint(); }
-  _releaseAll() { for (const b of this.holdButtons) b.release(); }
+  /**
+   * Глобальное отпускание: палец мог уйти с кнопки до того, как его подняли,
+   * и тогда своего события кнопка не получит. Отпускаем только то, что
+   * держал именно этот палец, — остальные кнопки других пальцев не трогаем.
+   */
+  _releaseAll(pointer) { for (const b of this.holdButtons) b.release(pointer); }
 
   // ------------------------------------------------------------ подсказка
 
@@ -283,10 +305,10 @@ export class Hud {
 
     const lines = [
       'ОГОНЬ — держи, набирается сила; отпустил — выстрел',
-      'вверх/вниз справа — угол прицела',
-      'влево/вправо слева — ходьба, над ними прыжок',
+      'вверх/вниз справа — угол прицела, его можно править прямо на заряде',
+      'прыжок — над «ОГНЁМ», ходьба — слева внизу',
       'тянуть фон — камера, два пальца — приблизить',
-      'кнопки справа — вернуть камеру и обзор всей карты',
+      'кнопки слева сверху — обзор карты и возврат к бойцу',
       'свайп прямо по бойцу — быстрый выстрел',
       'домик внизу слева — выход в меню',
       ...(s.match?.mode === 'online' ? ['звенья цепи — позвать второго по ссылке'] : []),

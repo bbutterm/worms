@@ -64,6 +64,7 @@ const state = () => page.evaluate(() => {
     angle: Math.round((s.aimAngle * 180) / Math.PI),
     solid: s.terrain.solid.reduce((a, v) => a + v, 0),
     charge: s.charge,
+    charging: s.charging,
     manual: s.rig.manual,
     zoom: +s.rig.zoom.toFixed(3),
     viewLeft: Math.round(s.rig.viewLeft),
@@ -265,7 +266,7 @@ const touch = async (type, pts) => {
     type,
     touchPoints: pts.map((p, i) => {
       const [x, y] = px(p[0], p[1]);
-      return { x, y, id: i };
+      return { x, y, id: p[2] ?? i };
     }),
   });
   await page.waitForTimeout(70);
@@ -286,6 +287,48 @@ await touch('touchEnd', []);
 const pinchedOut = await zoomNow();
 check('пинч двумя пальцами приближает', pinchedOut > pinchedIn,
   `${pinchedIn.toFixed(2)} → ${pinchedOut.toFixed(2)}`);
+
+// --- угол правится прямо во время набора силы, как в оригинале ---
+// Один палец держит «ОГОНЬ», второй жмёт ▲. Раньше на отпускании второго
+// пальца срабатывало общее «отпустить всё», и выстрел уходил сам.
+//
+// Про CDP: в touchEnd перечисляются пальцы, которые СНИМАЮТСЯ, а не те,
+// что остаются. На этом первая версия проверки и попалась — она снимала
+// «ОГОНЬ» вместо ▲ и обвиняла игру в собственной ошибке.
+await waitAim();
+await page.evaluate(() => window.__WORMS__.scene.getScene('Game').rig.setZoom(1));
+const beforeCharge = await state();
+const FINGER_FIRE = [BTN.fire.x, BTN.fire.y, 0];
+const FINGER_AIM = [BTN.aimUp.x, BTN.aimUp.y, 1];
+
+await touch('touchStart', [FINGER_FIRE]);
+await page.waitForTimeout(140);
+const charging1 = await state();
+
+await touch('touchStart', [FINGER_FIRE, FINGER_AIM]);
+await page.waitForTimeout(200);
+await touch('touchEnd', [FINGER_AIM]);       // снимаем только второй палец
+await page.waitForTimeout(90);
+const aimedWhileCharging = await state();
+
+check('угол меняется, пока держишь «ОГОНЬ»',
+  aimedWhileCharging.angle > charging1.angle,
+  `${charging1.angle}° → ${aimedWhileCharging.angle}°`);
+check('второй палец не спускает курок',
+  aimedWhileCharging.phase === 'aim'
+    && aimedWhileCharging.turn === beforeCharge.turn
+    && aimedWhileCharging.charging === true
+    && aimedWhileCharging.charge > charging1.charge,
+  `заряд ${charging1.charge.toFixed(2)} → ${aimedWhileCharging.charge.toFixed(2)}, `
+  + `держим: ${aimedWhileCharging.charging}`);
+
+await touch('touchEnd', [FINGER_FIRE]);
+await page.waitForTimeout(220);
+const afterRelease = await state();
+check('выстрел уходит, когда отпущен «ОГОНЬ»',
+  afterRelease.phase !== 'aim' || afterRelease.turn > beforeCharge.turn,
+  `фаза ${afterRelease.phase}`);
+await waitAim();
 
 await page.evaluate(() => {
   const s = window.__WORMS__.scene.getScene('Game');
