@@ -119,6 +119,49 @@ export class Worm {
     );
   }
 
+  /**
+   * Свободно ли туловище, если ноги стоят на (cx, cy).
+   *
+   * Ширина берётся та же, что у проверки опоры: разница даже в пиксель
+   * означала бы, что боец «стоит», но при этом «упирается» — ровно на этом
+   * ходьба и застревала.
+   */
+  bodyClear(cx, cy) {
+    const hw = CFG.WORM_W >> 1;
+    return !this.terrain.solidInRect(
+      Math.round(cx) - hw + 2, Math.round(cy) - CFG.WORM_H + 1,
+      Math.round(cx) + hw - 2, Math.round(cy),
+    );
+  }
+
+  /**
+   * На какой высоте окажутся ноги в точке cx.
+   *
+   * Боец стоит на самой высокой тверди под своей шириной, а не на земле
+   * ровно под центром: корпус 24 px, и на склоне земля под передним краем
+   * выше, чем под задним. Поиск идёт сверху вниз от «на шаг выше текущего»
+   * и не глубже шага вниз — так не запрыгнуть на потолок и не провалиться.
+   *
+   * @returns {number|null} y ног или null, если опоры рядом нет (обрыв).
+   */
+  footYAt(cx, fromY = this.y) {
+    const hw = CFG.WORM_W >> 1;
+    const x0 = Math.round(cx) - hw + 2, x1 = Math.round(cx) + hw - 2;
+    const top = Math.round(fromY) - CFG.STEP_UP;
+    const bottom = Math.round(fromY) + CFG.STEP_UP;
+    for (let y = top; y <= bottom; y++) {
+      if (this.terrain.solidInRow(x0, x1, y)) return y - 1;
+    }
+    return null;
+  }
+
+  /** Поставить ноги на землю там, где боец стоит сейчас. */
+  snapToGround() {
+    const y = this.footYAt(this.x, this.y);
+    if (y !== null && this.bodyClear(this.x, y)) this.y = y;
+    this.grounded = this.supported(this.x, this.y);
+  }
+
   // ------------------------------------------------------------- механика
 
   update(dt) {
@@ -159,38 +202,30 @@ export class Worm {
       remaining -= step;
       const nx = this.x + dir * step;
 
-      // 1. Ровно / вверх по склону, не выше STEP_UP
-      let done = false;
-      for (let dy = 0; dy >= -CFG.STEP_UP; dy--) {
-        const ny = this.y + dy;
-        if (this.rectClear(nx, ny) && this.supported(nx, ny)) {
-          this.x = nx; this.y = ny; moved = true; done = true; break;
-        }
-      }
-      if (done) continue;
+      // Куда встанут ноги: на самую высокую твердь под новой позицией
+      const ny = this.footYAt(nx, this.y);
 
-      // 2. Вниз по склону, не глубже STEP_UP — иначе начинаем падать
-      if (this.rectClear(nx, this.y)) {
-        let landed = false;
-        for (let dy = 1; dy <= CFG.STEP_UP; dy++) {
-          const ny = this.y + dy;
-          if (this.rectClear(nx, ny) && this.supported(nx, ny)) {
-            this.x = nx; this.y = ny; landed = true; moved = true; break;
-          }
-        }
-        if (landed) continue;
-
+      // Опоры в пределах шага нет — это обрыв, шагаем и падаем
+      if (ny === null) {
         this.x = nx;
         this.grounded = false;
         this.fallStartY = this.y;
+        this._clampToWorld();
         return true;
       }
 
-      // 3. Стена
-      break;
+      // Туловище упирается — стена. Подъём выше STEP_UP сюда же и попадает:
+      // ноги встали бы внутрь склона, и он пересёк бы корпус.
+      if (!this.bodyClear(nx, ny)) break;
+
+      this.x = nx;
+      this.y = ny;
+      moved = true;
     }
 
     this._clampToWorld();
+    // Уперлись — стоим, а не перебираем ногами на месте
+    if (!moved) this.walking = false;
     return moved;
   }
 

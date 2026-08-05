@@ -365,7 +365,11 @@ export default class GameScene extends Phaser.Scene {
     order.forEach(({ team, idx }, i) => {
       const x = spots[i] ?? this.rng.range(300, CFG.WORLD_W - 300);
       const top = this.terrain.surfaceYAt(x, 0) ?? CFG.GROUND_BASE - 100;
-      this.worms.push(new Worm(this, x, top - 1, team, idx));
+      const worm = new Worm(this, x, top - 1, team, idx);
+      // Земля под шириной корпуса бывает выше, чем ровно под центром:
+      // без этого боец стоит наполовину в склоне.
+      worm.snapToGround();
+      this.worms.push(worm);
     });
   }
 

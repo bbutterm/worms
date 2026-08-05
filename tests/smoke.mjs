@@ -257,6 +257,50 @@ await ready();
 await page.waitForTimeout(1200);
 await page.evaluate(() => window.__WORMS__.scene.getScene('Game').hud.setHelp(false));
 
+// --- ходьба не застревает на склонах ---
+// Раньше боец упирался сам в себя: земля под передним краем корпуса выше,
+// чем под задним, и проверка «прямоугольник свободен» считала её стеной.
+// Гоняем бойца по всему острову и смотрим, где он встал намертво.
+const walkTest = await page.evaluate(() => {
+  const s = window.__WORMS__.scene.getScene('Game');
+  const w = s.turn.activeWorm;
+  const t = s.terrain;
+  const keep = { x: w.x, y: w.y, grounded: w.grounded };
+  const dt = 1 / 60;
+  const stuck = [];
+  let starts = 0;
+
+  for (let sx = 200; sx < t.width - 200; sx += 100) {
+    if (!t.isSpawnable(sx)) continue;
+    const top = t.surfaceYAt(sx, 0);
+    if (top === null) continue;
+    starts++;
+    w.x = sx; w.y = top - 1; w.vx = 0; w.vy = 0; w.grounded = true;
+    w.snapToGround();
+
+    let blocked = 0;
+    for (let i = 0; i < 200; i++) {
+      const before = w.x;
+      w.walk(1, dt);
+      if (!w.grounded) {
+        for (let k = 0; k < 150 && !w.grounded; k++) w.update(dt);
+        if (!w.alive || w.y > 640) break;      // упал в воду — это не затык
+      }
+      if (Math.abs(w.x - before) < 0.01) {
+        if (++blocked > 4) { stuck.push(Math.round(w.x)); break; }
+      } else blocked = 0;
+    }
+  }
+
+  w.x = keep.x; w.y = keep.y; w.grounded = keep.grounded;
+  w.health = 100; w.alive = true;
+  return { starts, stuck };
+});
+check('ходьба не застревает на склонах',
+  walkTest.starts >= 5 && walkTest.stuck.length === 0,
+  `стартов ${walkTest.starts}, тупиков ${walkTest.stuck.length}`
+  + (walkTest.stuck.length ? `: x=${walkTest.stuck.slice(0, 5).join(', ')}` : ''));
+
 // --- короткое касание не тратит ход ---
 await waitAim();
 const beforeTap = await state();
