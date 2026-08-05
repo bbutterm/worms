@@ -157,46 +157,38 @@ export class Hud {
     const FR = 54;        // радиус «Огня»
     const gap = 10;
 
-    // Руки разведены по смыслу: слева — перемещение и камера, справа —
-    // всё, что относится к выстрелу: угол, прыжок и сам «Огонь».
-    const lx = 24, lx2 = lx + B + gap;
+    const JR = 38;        // радиус «Прыжка»
+
+    // Левая рука — прицел и ходьба: угол крутится левым большим пальцем,
+    // а правый в это время держит «Огонь» и не мешает.
+    const lx = 24, lx2 = lx + B + gap, lx3 = lx2 + B + gap;
     const rowLow = H - B - 14;
     const rowHigh = rowLow - B - gap;
 
     this._hold(lx, rowLow, B, 'left', 'left');
     this._hold(lx2, rowLow, B, 'right', 'right');
+    this._hold(lx3, rowHigh, B, 'up', 'aimUp');
+    this._hold(lx3, rowLow, B, 'down', 'aimDown');
     this._tap(lx, rowHigh, B, 'overview', () => s.rig.toggleOverview());
     this._tap(lx2, rowHigh, B, 'focus', () => s.focusCamera());
 
-    // Справа: «Огонь» в углу, слева от него угол прицела, над ним прыжок.
-    // Раскладка считается от круга, иначе квадраты наезжают на него.
+    // Правая рука — только выстрел и прыжок, оба кругом. Прыжок вплотную к
+    // «Огню» по диагонали: подпрыгнуть и ударить с высоты — один приём,
+    // и палец между ними ходить не должен.
     const fireCx = W - 30 - FR, fireCy = H - 30 - FR;
-    const ax = fireCx - FR - gap - B;
-    const aimLow = fireCy + FR - B;
-    const aimHigh = aimLow - B - gap;
-    const camRow = aimHigh - B - gap;
+    const d = (FR + gap + JR) * 0.7071;
+    const jumpCx = Math.round(fireCx - d), jumpCy = Math.round(fireCy - d);
 
-    this._hold(ax, aimHigh, B, 'up', 'aimUp');
-    this._hold(ax, aimLow, B, 'down', 'aimDown');
-    this._hold(fireCx - B / 2, camRow, B, 'jump', 'jumpQueued');
-
-    // Полного экрана нет в Safari на iPhone — там кнопку не показываем
-    if (s.scale.fullscreen.available) {
-      this._tap(ax, camRow, B, 'fullscreen', () => {
-        if (s.scale.isFullscreen) s.scale.stopFullscreen();
-        else s.scale.startFullscreen();
-      });
-    }
-
+    this._holdRound(jumpCx, jumpCy, JR, 'jump', 'jumpQueued');
     this._fireButton(fireCx, fireCy, FR);
 
     // Центры кнопок наружу: раскладка зависит от пропорций экрана, и
     // тестам незачем повторять её вычисления у себя.
     this.buttons = {
       fire: { x: fireCx, y: fireCy },
-      aimUp: { x: ax + B / 2, y: aimHigh + B / 2 },
-      aimDown: { x: ax + B / 2, y: aimLow + B / 2 },
-      jump: { x: fireCx, y: camRow + B / 2 },
+      jump: { x: jumpCx, y: jumpCy },
+      aimUp: { x: lx3 + B / 2, y: rowHigh + B / 2 },
+      aimDown: { x: lx3 + B / 2, y: rowLow + B / 2 },
       overview: { x: lx + B / 2, y: rowHigh + B / 2 },
       focus: { x: lx2 + B / 2, y: rowHigh + B / 2 },
       left: { x: lx + B / 2, y: rowLow + B / 2 },
@@ -256,6 +248,23 @@ export class Hud {
     this._register(img, onTap, null);
   }
 
+  /** Круглая кнопка-удержание: то же, что _hold, но формой под «Огонь». */
+  _holdRound(cx, cy, r, iconName, action) {
+    const s = this.scene;
+    const key = `ui-round-${r}`;
+    ensureRoundButton(s, key, r, 'normal');
+    const img = this.fix(s.add.image(cx, cy, key));
+    img.setInteractive(new Phaser.Geom.Circle(img.width / 2, img.height / 2, r),
+      Phaser.Geom.Circle.Contains);
+    const iconKey = ensureIcon(s, iconName, Math.round(r * 1.05));
+    if (iconKey) this.fix(s.add.image(cx, cy, iconKey), DEPTH.HUD + 1);
+    this.uiRects.push({ x: cx - r, y: cy - r, w: r * 2, h: r * 2, round: true });
+
+    this._register(img,
+      () => { s.moveInput[action] = true; },
+      () => { if (action !== 'jumpQueued') s.moveInput[action] = false; });
+  }
+
   /**
    * Кнопка выстрела: удержание набирает силу, отпускание стреляет.
    * Отпускание ловится и глобально (_releaseAll), иначе увод пальца
@@ -272,7 +281,7 @@ export class Hud {
     this._register(img,
       () => { s.moveInput.fire = true; },
       () => { s.moveInput.fire = false; });
-    this.uiRects.push({ x: cx - r, y: cy - r, w: r * 2, h: r * 2 });
+    this.uiRects.push({ x: cx - r, y: cy - r, w: r * 2, h: r * 2, round: true });
 
     // Шкала заряда — дугой вокруг самой кнопки: видно, не отводя глаз
     this.chargeGfx = this.fix(s.add.graphics(), DEPTH.HUD + 2);
@@ -294,29 +303,39 @@ export class Hud {
 
   _buildHelp(W, H) {
     const s = this.scene;
-    // Снизу слева от панели оружия: справа сверху она перекрывала
-    // указатели на бойцов вне экрана.
-    this._tap(206, H - 62, 48, 'help', () => this.toggleHelp());
-    this._tap(206 + 56, H - 62, 48, 'home', () => s.toMenu());
+    // Редкие кнопки собраны в одну полосу между блоком ходьбы и панелью
+    // оружия: маленькие, одинаковые, под большой палец не просятся.
+    // Полоса начинается за колонкой прицела и обязана кончиться до оружия.
+    const SB = 44, step = 50;
+    let sx = 244;
+    const service = (icon, onTap) => { this._tap(sx, H - 60, SB, icon, onTap); sx += step; };
+
+    service('help', () => this.toggleHelp());
+    service('home', () => s.toMenu());
+    // Полного экрана нет в Safari на iPhone — там кнопку не показываем
+    if (s.scale.fullscreen.available) {
+      service('fullscreen', () => {
+        if (s.scale.isFullscreen) s.scale.stopFullscreen();
+        else s.scale.startFullscreen();
+      });
+    }
     // Приглашение по ссылке нужно только в сетевой партии: в кампании эта
     // кнопка молча бросала бы миссию
-    if (s.match?.mode === 'online') {
-      this._tap(206 + 112, H - 62, 48, 'link', () => s.shareInvite());
-    }
+    if (s.match?.mode === 'online') service('link', () => s.shareInvite());
 
     // Строка сетевого статуса живёт над этими кнопками и в локальной
     // партии пуста — обычной игре она не мешает
-    this.netText = this.fix(s.add.text(206, H - 70, '', font(12, 800, UI.accent))
+    this.netText = this.fix(s.add.text(244, H - 68, '', font(12, 800, UI.accent))
       .setOrigin(0, 1), DEPTH.HUD + 1);
 
     const lines = [
       'ОГОНЬ — держи, набирается сила; отпустил — выстрел',
-      'вверх/вниз справа — угол прицела, его можно править прямо на заряде',
-      'прыжок — над «ОГНЁМ», ходьба — слева внизу',
+      'вверх/вниз слева — угол прицела, правится прямо на заряде',
+      'влево/вправо слева — ходьба, прыжок — круг у «ОГНЯ»',
       'тянуть фон — камера, два пальца — приблизить',
       'кнопки слева сверху — обзор карты и возврат к бойцу',
       'свайп прямо по бойцу — быстрый выстрел',
-      'домик внизу слева — выход в меню',
+      'маленькие кнопки внизу — подсказка, меню, полный экран',
       ...(s.match?.mode === 'online' ? ['звенья цепи — позвать второго по ссылке'] : []),
     ];
     const w = 560, h = lines.length * 27 + 96;
@@ -376,7 +395,14 @@ export class Hud {
     if (py < TOP_H) return true;
     if (this.helpVisible) return true;   // подсказка перекрывает всё поле
     for (const r of this.uiRects) {
-      if (px >= r.x && px <= r.x + r.w && py >= r.y && py <= r.y + r.h) return true;
+      // Круглые кнопки и проверяются по кругу: по прямоугольнику углы
+      // «Огня» и «Прыжка» задевали бы соседа, которого там нет.
+      if (r.round) {
+        const cx = r.x + r.w / 2, cy = r.y + r.h / 2;
+        if (Math.hypot(px - cx, py - cy) <= r.w / 2) return true;
+      } else if (px >= r.x && px <= r.x + r.w && py >= r.y && py <= r.y + r.h) {
+        return true;
+      }
     }
     return false;
   }

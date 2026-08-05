@@ -172,11 +172,19 @@ await page.evaluate(() => window.__WORMS__.scene.getScene('Game').hud.setHelp(fa
 const overlaps = await page.evaluate(() => {
   const r = window.__WORMS__.scene.getScene('Game').hud.uiRects;
   const bad = [];
+  // Круглые кнопки сравниваем по кругам: по прямоугольникам «Огонь» и
+  // «Прыжок» задевали бы друг друга углами, которых у них нет.
+  const hit = (a, b) => {
+    if (a.round && b.round) {
+      const d = Math.hypot((a.x + a.w / 2) - (b.x + b.w / 2), (a.y + a.h / 2) - (b.y + b.h / 2));
+      return d < a.w / 2 + b.w / 2;
+    }
+    return a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
+  };
   for (let i = 0; i < r.length; i++) {
     for (let j = i + 1; j < r.length; j++) {
-      const a = r[i], b = r[j];
-      if (a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h) {
-        bad.push(`${Math.round(a.x)},${Math.round(a.y)} × ${Math.round(b.x)},${Math.round(b.y)}`);
+      if (hit(r[i], r[j])) {
+        bad.push(`${Math.round(r[i].x)},${Math.round(r[i].y)} × ${Math.round(r[j].x)},${Math.round(r[j].y)}`);
       }
     }
   }
