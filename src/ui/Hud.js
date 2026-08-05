@@ -25,7 +25,13 @@ export class Hud {
 
     const W = CFG.VIEW_W;
     const H = CFG.VIEW_H;
-    this.fix = (o, d = DEPTH.HUD) => scene.rig.ui(o.setScrollFactor(0).setDepth(d));
+    // Через fix проходит каждый объект интерфейса, поэтому здесь же он и
+    // запоминается: иначе пересобрать HUD после поворота экрана нечем.
+    this.items = [];
+    this.fix = (o, d = DEPTH.HUD) => {
+      this.items.push(o);
+      return scene.rig.ui(o.setScrollFactor(0).setDepth(d));
+    };
 
     this._buildTopBar(W);
     this._buildWeapons(W, H);
@@ -331,10 +337,11 @@ export class Hud {
     });
     this.setHelp(true);
 
-    // Подсказка закрывается любым касанием — искать кнопку не нужно
-    this.scene.input.on('pointerdown', () => {
-      if (this.helpVisible) this.setHelp(false);
-    });
+    // Подсказка закрывается любым касанием — искать кнопку не нужно.
+    // Обработчик именованный: при пересборке HUD его надо снять, иначе
+    // старый останется висеть и будет закрывать уже новую подсказку.
+    this._closeHelp = () => { if (this.helpVisible) this.setHelp(false); };
+    this.scene.input.on('pointerdown', this._closeHelp);
   }
 
   setHelp(on) {
@@ -346,6 +353,19 @@ export class Hud {
 
   setNetStatus(text, color = UI.accent) {
     this.netText?.setText(text).setColor(color);
+  }
+
+  /** Снести интерфейс целиком — перед пересборкой под новый размер экрана. */
+  destroy() {
+    this.scene.input.off('pointerup', this._releaseAll, this);
+    this.scene.input.off('pointerupoutside', this._releaseAll, this);
+    if (this._closeHelp) this.scene.input.off('pointerdown', this._closeHelp);
+    for (const o of this.items) o.destroy();
+    this.items = [];
+    this.holdButtons = [];
+    this.weaponButtons = [];
+    this.uiRects = [];
+    this.helpPanel = [];
   }
 
   // --------------------------------------------------------------- прочее

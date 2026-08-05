@@ -83,7 +83,25 @@ export default class GameScene extends Phaser.Scene {
     this.turn.begin(this._firstTeam());
 
     this._setupNet();
+    // Экран может поменять размер прямо посреди партии: повернули телефон,
+    // уехала панель браузера. Логический размер тогда пересчитывается, и
+    // интерфейс надо разложить заново.
+    this.game.events.on('worms-resize', this.relayout, this);
     this.events.once('shutdown', this._shutdown, this);
+  }
+
+  /** Пересобрать всё, что считалось от размера экрана. */
+  relayout() {
+    this.rig.resize();
+    this.skyImage?.setDisplaySize(CFG.VIEW_W, this.skyHeight ?? CFG.VIEW_H);
+
+    // HUD проще собрать заново, чем двигать полсотни объектов поштучно
+    const help = this.hud.helpVisible;
+    this.hud.destroy();
+    this.hud = new Hud(this);
+    this.hud.setHelp(help);
+    this.hud.setWeaponIndex(this.turn.weaponIndex);
+    if (this.room) this._netStatus();
   }
 
   // ------------------------------------------------------------------ боты
@@ -259,11 +277,12 @@ export default class GameScene extends Phaser.Scene {
     // нижняя (почти чёрная) часть должна остаться за кадром.
     if (has(this, `${biome.id}_sky`)) {
       const skyH = meta(`terrain_${biome.id}`)?.skyH ?? CFG.VIEW_H;
-      this.rig.bg(this.add.image(0, 0, `${biome.id}_sky`)
+      this.skyImage = this.rig.bg(this.add.image(0, 0, `${biome.id}_sky`)
         .setOrigin(0, 0)
         .setDisplaySize(CFG.VIEW_W, Math.max(skyH, CFG.VIEW_H))
         .setScrollFactor(0)
         .setDepth(DEPTH.SKY));
+      this.skyHeight = Math.max(skyH, CFG.VIEW_H);
     } else {
       const key = 'sky-tex';
       if (this.textures.exists(key)) this.textures.remove(key);
@@ -275,9 +294,10 @@ export default class GameScene extends Phaser.Scene {
       ctx.fillStyle = g;
       ctx.fillRect(0, 0, 8, CFG.VIEW_H);
       tex.refresh();
-      this.rig.bg(this.add.image(0, 0, key).setOrigin(0, 0)
+      this.skyImage = this.rig.bg(this.add.image(0, 0, key).setOrigin(0, 0)
         .setDisplaySize(CFG.VIEW_W, CFG.VIEW_H)
         .setScrollFactor(0).setDepth(DEPTH.SKY));
+      this.skyHeight = CFG.VIEW_H;
     }
 
     this._buildParallax(biome);
@@ -853,6 +873,7 @@ export default class GameScene extends Phaser.Scene {
   }
 
   _shutdown() {
+    this.game.events.off('worms-resize', this.relayout, this);
     this.aim?.destroy();
     this.crates = [];
     this.rig?.destroy();

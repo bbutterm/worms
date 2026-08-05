@@ -141,6 +141,32 @@ await portrait.close();
 check('в портрете размер считается по ландшафтной стороне',
   portraitSize.w > 1500 && portraitSize.h === 720, `${portraitSize.w}x${portraitSize.h}`);
 
+// Экран меняется уже после запуска: на телефоне уезжает панель браузера,
+// телефон поворачивают. Размер обязан пересчитаться, иначе Scale.FIT
+// вписывает старые пропорции в новые и оставляет поля по краям.
+await page.setViewportSize({ width: 1180, height: 480 });
+await page.waitForTimeout(900);
+const afterResize = await page.evaluate(() => {
+  const g = window.__WORMS__;
+  const r = g.canvas.getBoundingClientRect();
+  return {
+    logicalW: g.scale.width,
+    // отношение сторон канваса на экране обязано совпасть с логическим
+    canvasRatio: +(r.width / r.height).toFixed(3),
+    logicalRatio: +(g.scale.width / g.scale.height).toFixed(3),
+    hudFire: window.__WORMS__.scene.getScene('Game').hud.buttons.fire.x,
+  };
+});
+check('при смене размера экрана поля не появляются',
+  Math.abs(afterResize.canvasRatio - afterResize.logicalRatio) < 0.02,
+  `канвас ${afterResize.canvasRatio} против логики ${afterResize.logicalRatio}`);
+check('интерфейс переехал под новую ширину',
+  afterResize.hudFire > afterResize.logicalW - 200,
+  `«Огонь» на x=${Math.round(afterResize.hudFire)} при ширине ${afterResize.logicalW}`);
+await page.setViewportSize({ width: vpW, height: vpH });
+await page.waitForTimeout(900);
+await page.evaluate(() => window.__WORMS__.scene.getScene('Game').hud.setHelp(false));
+
 // Кнопки не должны наезжать друг на друга: раскладка считается от размера
 // экрана, и на нестандартных пропорциях это легко проглядеть.
 const overlaps = await page.evaluate(() => {

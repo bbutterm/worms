@@ -63,3 +63,33 @@ const game = new Phaser.Game({
 });
 
 window.__WORMS__ = game;
+
+/**
+ * Пересчёт размера при смене экрана.
+ *
+ * Логический размер считается из пропорций окна, а окно на телефоне живёт
+ * своей жизнью: панель браузера то появляется, то уезжает, телефон
+ * поворачивают. Посчитать один раз при запуске мало — стоит высоте
+ * измениться, и Phaser.Scale.FIT начинает вписывать старые пропорции в
+ * новые, оставляя чёрные поля по краям.
+ *
+ * Мелкие колебания игнорируем: пересборка интерфейса не бесплатная, а
+ * пара пикселей на глаз всё равно не видна.
+ */
+let refitTimer = 0;
+function refit() {
+  const before = CFG.VIEW_W;
+  fitViewToScreen(window.innerWidth, window.innerHeight);
+  if (Math.abs(CFG.VIEW_W - before) < 24) return;
+  // Именно setGameSize: resize() меняет размер, но не пересчитывает
+  // пропорции, под которые вписывается канвас, — поля остаются на месте.
+  game.scale.setGameSize(CFG.VIEW_W, CFG.VIEW_H);
+  game.events.emit('worms-resize', CFG.VIEW_W, CFG.VIEW_H);
+}
+function scheduleRefit(delay) {
+  clearTimeout(refitTimer);
+  refitTimer = setTimeout(refit, delay);
+}
+window.addEventListener('resize', () => scheduleRefit(200));
+// Поворот телефона: размеры окна доезжают не сразу, поэтому ждём дольше
+window.addEventListener('orientationchange', () => scheduleRefit(500));

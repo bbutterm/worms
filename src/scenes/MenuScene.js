@@ -32,6 +32,22 @@ export default class MenuScene extends Phaser.Scene {
     this.showRoot();
 
     this.input.keyboard?.on('keydown-ESC', () => this.showRoot());
+
+    // Повернули телефон или уехала панель браузера — раскладка считается
+    // от ширины экрана, поэтому раздел перерисовывается целиком.
+    this.game.events.on('worms-resize', this._relayout, this);
+    this.events.once('shutdown', () => {
+      this.game.events.off('worms-resize', this._relayout, this);
+    });
+  }
+
+  _relayout() {
+    this.W = this.scale.width;
+    this.H = this.scale.height;
+    this.backdropImage?.destroy();
+    this.textures.remove('menu-bg');
+    this._backdrop();
+    (this.section ?? this.showRoot).call(this);
   }
 
   /** Небо и силуэт холмов: пустой тёмный экран смотрелся заготовкой. */
@@ -68,7 +84,7 @@ export default class MenuScene extends Phaser.Scene {
       }
       tex.refresh();
     }
-    this.add.image(0, 0, key).setOrigin(0, 0).setDepth(-10);
+    this.backdropImage = this.add.image(0, 0, key).setOrigin(0, 0).setDepth(-10);
   }
 
   // ------------------------------------------------------------- разделы
@@ -126,6 +142,7 @@ export default class MenuScene extends Phaser.Scene {
   }
 
   showRoot() {
+    this.section = this.showRoot;
     this._clear();
     this._title('WORMS', 'прототип пошаговой артиллерии');
     const cx = this.W / 2;
@@ -145,6 +162,7 @@ export default class MenuScene extends Phaser.Scene {
   // ------------------------------------------------------- быстрая игра
 
   showQuick() {
+    this.section = this.showQuick;
     this._clear();
     this._title('Быстрая игра', 'случайная карта, 2 на 2');
     const cx = this.W / 2;
@@ -169,6 +187,7 @@ export default class MenuScene extends Phaser.Scene {
   // ------------------------------------------------------------ кампания
 
   showCampaign() {
+    this.section = this.showCampaign;
     this._clear();
     const done = loadProgress();
     this._title('Кампания', `пройдено ${done.size} из ${MISSIONS.length}`);
@@ -190,6 +209,7 @@ export default class MenuScene extends Phaser.Scene {
 
   /** Вводная перед миссией: без неё условия видно только по факту. */
   showBrief(mission) {
+    this.section = () => this.showBrief(mission);
     this._clear();
     this._title(mission.title, mission.subtitle);
     const cx = this.W / 2;
@@ -212,6 +232,7 @@ export default class MenuScene extends Phaser.Scene {
   // -------------------------------------------------------------- онлайн
 
   showOnline() {
+    this.section = this.showOnline;
     this._clear();
     this._title('Онлайн', 'вдвоём через интернет, по коду комнаты');
     const cx = this.W / 2;
@@ -234,6 +255,7 @@ export default class MenuScene extends Phaser.Scene {
 
   /** Комната создана: показываем код крупно, ссылку кладём в буфер. */
   showRoom(room) {
+    this.section = () => this.showRoom(room);
     this._clear();
     this._title('Комната создана', 'дай другу код или ссылку');
     const cx = this.W / 2;
