@@ -1,0 +1,12 @@
+{
+  "name": "Worms Prototype",
+  "short_name": "Worms",
+  "description": "Прототип пошаговой артиллерийской игры: хотсит на одном устройстве",
+  "start_url": "./",
+  "scope": "./",
+  "display": "fullscreen",
+  "display_override": ["fullscreen", "standalone"],
+  "orientation": "landscape",
+  "background_color": "#0b1021",
+  "theme_color": "#0b1021"
+}

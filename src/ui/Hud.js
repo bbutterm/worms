@@ -102,21 +102,45 @@ export class Hud {
     this._makeHoldButton(24, CFG.VIEW_H - 152, 64, 64, '⤒', 'jumpQueued');
 
     // --- правый блок: угол и огонь ---
-    this._makeHoldButton(1052, CFG.VIEW_H - 146, 60, 60, '▲', 'aimUp');
-    this._makeHoldButton(1052, CFG.VIEW_H - 76, 60, 60, '▼', 'aimDown');
-    this._makeFireButton(1192, CFG.VIEW_H - 80, 54);
+    // Координаты справа считаются от края экрана: логическая ширина
+    // подгоняется под пропорции устройства и на телефоне заметно больше 1280.
+    const aimX = W - 228;
+    this._makeHoldButton(aimX, CFG.VIEW_H - 146, 60, 60, '▲', 'aimUp');
+    this._makeHoldButton(aimX, CFG.VIEW_H - 76, 60, 60, '▼', 'aimDown');
+    this._makeFireButton(W - 88, CFG.VIEW_H - 80, 54);
 
     // Возврат камеры: без него, уведя её посмотреть на противника,
     // игрок остаётся без прицела и без способа вернуться
     this._makeTapButton(96, CFG.VIEW_H - 152, 64, 64, '⌖', () => scene.focusCamera());
-    this._makeTapButton(1052, CFG.VIEW_H - 216, 60, 60, '⛶', () => scene.rig.toggleOverview());
+    this._makeTapButton(aimX, CFG.VIEW_H - 216, 60, 60, '⛶', () => scene.rig.toggleOverview());
 
-    this.hint = fix(scene.add.text(640, CFG.VIEW_H - 72,
+    // Полноэкранный режим есть не везде: в Safari на iPhone его нет вовсе,
+    // там помогает только «На экран Домой» или запуск внутри Telegram.
+    if (scene.scale.fullscreen.available) {
+      this._makeTapButton(24, CFG.VIEW_H - 224, 64, 64, '⤢', () => {
+        if (scene.scale.isFullscreen) scene.scale.stopFullscreen();
+        else scene.scale.startFullscreen();
+      });
+    }
+
+    this.hint = fix(scene.add.text(W / 2, CFG.VIEW_H - 72,
       'держи ОГОНЬ — набор силы, отпусти — выстрел · ▲▼ угол\n'
       + 'можно и свайпом по бойцу · тяни фон — камера', {
         fontFamily: 'monospace', fontSize: '11px', color: '#c3cee0', align: 'center',
         stroke: '#0d1018', strokeThickness: 3,
       }).setOrigin(0.5, 1));
+
+    // Центры кнопок наружу: раскладка зависит от пропорций экрана, и
+    // тестам незачем повторять её вычисления у себя.
+    this.buttons = {
+      fire: { x: W - 88, y: CFG.VIEW_H - 80 },
+      aimUp: { x: aimX + 30, y: CFG.VIEW_H - 116 },
+      aimDown: { x: aimX + 30, y: CFG.VIEW_H - 46 },
+      overview: { x: aimX + 30, y: CFG.VIEW_H - 186 },
+      focus: { x: 128, y: CFG.VIEW_H - 120 },
+      left: { x: 56, y: CFG.VIEW_H - 48 },
+      right: { x: 128, y: CFG.VIEW_H - 48 },
+    };
 
     scene.input.on('pointerup', this._releaseAll, this);
     scene.input.on('pointerupoutside', this._releaseAll, this);

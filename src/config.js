@@ -1,8 +1,12 @@
 // Глобальные константы прототипа. Всё в пикселях и секундах.
 export const CFG = {
   // --- Экран / мир ---
+  // VIEW_W подгоняется под пропорции экрана в fitViewToScreen(); высота
+  // фиксирована, поэтому геометрия мира от устройства не зависит.
   VIEW_W: 1280,
   VIEW_H: 720,
+  VIEW_W_MIN: 1280,        // уже — незачем, поля появятся только на квадратных экранах
+  VIEW_W_MAX: 2200,        // шире — интерфейс расползается, а мир 3200 кончается
   WORLD_W: 3200,           // карта ~2.5x шире экрана, камера следит
   WORLD_H: 720,
 
@@ -90,6 +94,21 @@ export const CFG = {
   // --- Прочее ---
   MUZZLE_OFFSET: 22,       // вынос точки вылета снаряда от центра бойца
 };
+
+/**
+ * Подогнать логическую ширину под пропорции экрана.
+ *
+ * Мы держим постоянной высоту (720) и тянем ширину: тогда Phaser.Scale.FIT
+ * вписывает канвас без чёрных полей по бокам, а игрок на вытянутом телефоне
+ * видит больше поля по горизонтали — для артиллерии это прямая выгода.
+ * Вызывать до создания Phaser.Game.
+ */
+export function fitViewToScreen(screenW, screenH) {
+  if (!screenW || !screenH) return CFG.VIEW_W;
+  const wanted = Math.round(CFG.VIEW_H * (screenW / screenH));
+  CFG.VIEW_W = Math.max(CFG.VIEW_W_MIN, Math.min(CFG.VIEW_W_MAX, wanted));
+  return CFG.VIEW_W;
+}
 
 export const DEPTH = {
   SKY: 0,

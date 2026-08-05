@@ -1,9 +1,15 @@
-import { CFG } from './config.js';
+import { CFG, fitViewToScreen } from './config.js';
 import BootScene from './scenes/BootScene.js';
 import GameScene from './scenes/GameScene.js';
 import { initTelegram } from './platform/telegram.js';
 
 initTelegram();
+
+// Логическая ширина подгоняется под пропорции экрана ДО создания игры:
+// иначе на вытянутом телефоне 16:9 вписывается с чёрными полями по бокам
+// (на замере — 29% ширины впустую). Высота остаётся 720, поэтому вся
+// геометрия мира, физика и генерация ландшафта не меняются вовсе.
+fitViewToScreen(window.innerWidth, window.innerHeight);
 
 /**
  * Ни Arcade, ни Matter, ни Impact — блок `physics` в конфиге отсутствует

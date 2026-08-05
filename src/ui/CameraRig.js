@@ -160,7 +160,10 @@ export class CameraRig {
   _applyScrollY(targetY) {
     const vh = this.visibleH;
     if (vh >= CFG.WORLD_H) {
-      this.setViewTop(CFG.WORLD_FOCUS_Y - vh / 2);
+      // Центрируемся на полосе земли, но не опускаем вид ниже нуля: при
+      // зуме 1 высота вида ровно равна миру, и любое смещение резало бы
+      // небо сверху и показывало лишнюю воду снизу.
+      this.setViewTop(Math.min(CFG.WORLD_FOCUS_Y - vh / 2, 0));
     } else {
       const want = (targetY ?? CFG.WORLD_H / 2) - vh / 2;
       this.setViewTop(Phaser.Math.Clamp(want, 0, CFG.WORLD_H - vh));

@@ -26,7 +26,10 @@ function check(name, ok, detail = '') {
 const browser = await chromium.launch(
   process.env.CHROMIUM_PATH ? { executablePath: process.env.CHROMIUM_PATH } : {},
 );
-const page = await browser.newPage({ viewport: { width: 1280, height: 720 }, hasTouch: true });
+// Пропорции окна можно навязать: раскладка под них подстраивается, и
+// проверять её надо не только на 16:9. Пример: VIEWPORT=932x430 npm test
+const [vpW, vpH] = (process.env.VIEWPORT || '1280x720').split('x').map(Number);
+const page = await browser.newPage({ viewport: { width: vpW, height: vpH }, hasTouch: true });
 
 page.on('pageerror', (e) => errors.push(`pageerror: ${e.message}`));
 page.on('console', (m) => {
@@ -69,6 +72,23 @@ const waitAim = () => page.waitForFunction(
 await ready();
 await page.waitForTimeout(1500);
 
+// Раскладка зависит от пропорций окна, поэтому координаты кнопок берём
+// у самой игры, а не зашиваем в тест.
+const BTN = await page.evaluate(() => window.__WORMS__.scene.getScene('Game').hud.buttons);
+const view = await page.evaluate(() => {
+  const g = window.__WORMS__;
+  const r = g.canvas.getBoundingClientRect();
+  return { w: g.scale.width, h: g.scale.height, left: r.left, top: r.top, cw: r.width, ch: r.height };
+});
+// Логические координаты игры не равны CSS-пикселям окна: канвас
+// масштабируется под экран. Мышь и касания ходят в CSS-пикселях.
+const px = (x, y) => [
+  Math.round(view.left + (x * view.cw) / view.w),
+  Math.round(view.top + (y * view.ch) / view.h),
+];
+check('логическая ширина подогнана под экран', view.w >= 1280 && view.h === 720,
+  `${view.w}x${view.h}`);
+
 const start = await state();
 check('игра стартовала', start.alive === 4 && start.phase === 'aim');
 check('прицел на 45°', start.angle === 45, `${start.angle}°`);
@@ -90,7 +110,7 @@ for (let i = 0; i < WEAPONS.length; i++) {
     return { turn: s.turn.turnNumber, solid: s.terrain.solid.reduce((a, v) => a + v, 0) };
   }, i);
 
-  await page.mouse.move(1192, 640);
+  await page.mouse.move(...px(BTN.fire.x, BTN.fire.y));
   await page.mouse.down();
   await page.waitForTimeout(700);
   await page.mouse.up();
@@ -111,14 +131,14 @@ for (let i = 0; i < WEAPONS.length; i++) {
 // --- короткое касание не тратит ход ---
 await waitAim();
 const beforeTap = await state();
-await page.mouse.click(1192, 640, { delay: 20 });
+await page.mouse.click(...px(BTN.fire.x, BTN.fire.y), { delay: 20 });
 await page.waitForTimeout(500);
 const afterTap = await state();
 check('короткий тап не тратит ход',
   afterTap.turn === beforeTap.turn && afterTap.phase === 'aim');
 
 // --- кнопки угла ---
-await page.mouse.move(1082, 604);
+await page.mouse.move(...px(BTN.aimUp.x, BTN.aimUp.y));
 await page.mouse.down();
 await page.waitForTimeout(400);
 await page.mouse.up();
@@ -127,14 +147,14 @@ check('кнопка ▲ поднимает прицел', aimed.angle > beforeTa
   `${beforeTap.angle}° → ${aimed.angle}°`);
 
 // --- протяжка камеры и возврат кнопкой ---
-await page.mouse.move(640, 300);
+await page.mouse.move(...px(view.w / 2, 300));
 await page.mouse.down();
-await page.mouse.move(300, 300, { steps: 10 });
+await page.mouse.move(...px(view.w / 2 - 340, 300), { steps: 10 });
 await page.mouse.up();
 const panned = await state();
 check('камера тянется пальцем', panned.manual && panned.viewLeft !== aimed.viewLeft,
   `${aimed.viewLeft} → ${panned.viewLeft}`);
-await page.mouse.click(128, 600);          // кнопка «к бойцу»
+await page.mouse.click(...px(BTN.focus.x, BTN.focus.y));   // кнопка «к бойцу»
 await page.waitForTimeout(300);
 const focused = await state();
 check('кнопка «к бойцу» возвращает камеру', !focused.manual);
@@ -171,6 +191,15 @@ for (const t of roundTrip) {
   check(`координаты сходятся при зуме ${t.z}`, t.err < 1.5, `ошибка ${t.err.toFixed(2)} px`);
 }
 
+// При зуме 1 мир по высоте ровно равен виду: любое смещение срезало бы
+// небо сверху и показывало пустую воду снизу.
+const topAt1 = await page.evaluate(() => {
+  const r = window.__WORMS__.scene.getScene('Game').rig;
+  r.setZoom(1);
+  return Math.round(r.viewTop);
+});
+check('при зуме 1 вид не смещён по вертикали', topAt1 === 0, `viewTop ${topAt1}`);
+
 // --- пинч двумя пальцами ---
 // Playwright умеет только одиночные касания, поэтому два пальца шлём
 // напрямую через CDP.
@@ -178,21 +207,25 @@ const cdp = await page.context().newCDPSession(page);
 const touch = async (type, pts) => {
   await cdp.send('Input.dispatchTouchEvent', {
     type,
-    touchPoints: pts.map((p, i) => ({ x: p[0], y: p[1], id: i })),
+    touchPoints: pts.map((p, i) => {
+      const [x, y] = px(p[0], p[1]);
+      return { x, y, id: i };
+    }),
   });
   await page.waitForTimeout(70);
 };
 const zoomNow = () => page.evaluate(() => window.__WORMS__.scene.getScene('Game').rig.zoom);
 
 await page.evaluate(() => window.__WORMS__.scene.getScene('Game').rig.setZoom(1));
-await touch('touchStart', [[400, 300], [880, 300]]);
-for (const d of [400, 300, 200, 130]) await touch('touchMove', [[640 - d / 2, 300], [640 + d / 2, 300]]);
+await touch('touchStart', [[view.w / 2 - 240, 300], [view.w / 2 + 240, 300]]);
+const cx = Math.round(view.w / 2);
+for (const d of [400, 300, 200, 130]) await touch('touchMove', [[cx - d / 2, 300], [cx + d / 2, 300]]);
 await touch('touchEnd', []);
 const pinchedIn = await zoomNow();
 check('пинч двумя пальцами отдаляет', pinchedIn < 0.95, `зум ${pinchedIn.toFixed(2)}`);
 
-await touch('touchStart', [[570, 300], [710, 300]]);
-for (const d of [140, 300, 460, 640]) await touch('touchMove', [[640 - d / 2, 300], [640 + d / 2, 300]]);
+await touch('touchStart', [[view.w / 2 - 70, 300], [view.w / 2 + 70, 300]]);
+for (const d of [140, 300, 460, 640]) await touch('touchMove', [[cx - d / 2, 300], [cx + d / 2, 300]]);
 await touch('touchEnd', []);
 const pinchedOut = await zoomNow();
 check('пинч двумя пальцами приближает', pinchedOut > pinchedIn,
@@ -210,7 +243,7 @@ const markers = await page.evaluate(() => {
   const r = s.rig;
   r.setViewLeft(0);
   s.offscreen.update();
-  const off = s.worms.filter((w) => w.alive && r.screenX(w.x) > 1280 - 70).length;
+  const off = s.worms.filter((w) => w.alive && r.screenX(w.x) > s.scale.width - 70).length;
   const shown = s.offscreen.labels.filter((l) => l.visible).length;
   r.focus(s.turn.activeWorm);
   return { off, shown };
@@ -225,9 +258,9 @@ const wormPos = await page.evaluate(() => {
   const w = s.turn.activeWorm; const r = s.rig;
   return { x: r.screenX(w.x), y: (w.centerY - r.viewTop) * r.zoom };
 });
-await page.mouse.move(wormPos.x, wormPos.y);
+await page.mouse.move(...px(wormPos.x, wormPos.y));
 await page.mouse.down();
-await page.mouse.move(wormPos.x + 70, wormPos.y - 90, { steps: 8 });
+await page.mouse.move(...px(wormPos.x + 70, wormPos.y - 90), { steps: 8 });
 await page.waitForTimeout(120);
 await page.mouse.up();
 await page.waitForTimeout(400);
@@ -246,7 +279,7 @@ await page.waitForFunction(
 check('победа засчитана', true);
 
 await page.waitForTimeout(1000);
-await page.mouse.click(640, 300);
+await page.mouse.click(...px(view.w / 2, 300));
 await ready();
 await page.waitForTimeout(1200);
 const restarted = await state();
