@@ -8,7 +8,10 @@ import { readFile } from 'node:fs/promises';
 import { extname, join, normalize } from 'node:path';
 
 const ROOT = process.cwd();
-const PORT = 5187;
+// Порт просим у системы (0 = любой свободный). С фиксированным номером
+// второй прогон падал на «адрес занят», стоило предыдущему зависнуть или
+// пережить своё убийство.
+const PORT = Number(process.env.PORT) || 0;
 const TYPES = {
   '.html': 'text/html; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',
@@ -31,8 +34,9 @@ const server = createServer(async (req, res) => {
   }
 });
 
-await new Promise((r) => server.listen(PORT, r));
-console.log(`статика на http://127.0.0.1:${PORT}\n`);
+await new Promise((r) => server.listen(PORT, '127.0.0.1', r));
+const port = server.address().port;
+console.log(`статика на http://127.0.0.1:${port}\n`);
 
 // Наборов два: обычная игра и сетевая партия из двух вкладок.
 // Можно взять один: node tests/run.mjs net
@@ -43,7 +47,7 @@ let code = 0;
 for (const suite of suites) {
   console.log(`\n=== ${suite} ===`);
   const c = await new Promise((resolve) => {
-    const child = spawn(process.execPath, [`tests/${suite}.mjs`, `http://127.0.0.1:${PORT}`],
+    const child = spawn(process.execPath, [`tests/${suite}.mjs`, `http://127.0.0.1:${port}`],
       { stdio: 'inherit' });
     child.on('exit', (n) => resolve(n ?? 1));
   });

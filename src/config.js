@@ -120,7 +120,14 @@ export const CFG = {
  */
 export function fitViewToScreen(screenW, screenH) {
   if (!screenW || !screenH) return CFG.VIEW_W;
-  const wanted = Math.round(CFG.VIEW_H * (screenW / screenH));
+  // Считаем всегда по ландшафтной стороне, даже если страницу открыли в
+  // портрете. Игра ландшафтная, в портрете она просит повернуть телефон —
+  // и если посчитать по портретным пропорциям, ширина упрётся в минимум
+  // (1280 = 16:9), а после поворота останутся чёрные поля по бокам.
+  // Размер считается один раз до создания игры, второго шанса нет.
+  const long = Math.max(screenW, screenH);
+  const short = Math.min(screenW, screenH);
+  const wanted = Math.round(CFG.VIEW_H * (long / short));
   CFG.VIEW_W = Math.max(CFG.VIEW_W_MIN, Math.min(CFG.VIEW_W_MAX, wanted));
   return CFG.VIEW_W;
 }
