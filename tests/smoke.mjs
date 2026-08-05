@@ -151,25 +151,38 @@ check('игра стартовала', start.alive === 4 && start.phase === 'aim
 check('прицел на 45°', start.angle === 45, `${start.angle}°`);
 
 // --- каждое оружие стреляет через кнопку и рвёт землю ---
-const WEAPONS = ['базука', 'граната', 'кассета', 'крот'];
+// Угол и сила у каждого оружия свои и заданы явно. Граната скачет, поэтому
+// ей — крутой угол и слабый заряд: снаряд ложится рядом со стрелком, где
+// земля есть заведомо. Раньше все стреляли одинаково, и граната то и дело
+// укатывалась в воду — проверка мигала от прогона к прогону.
+const WEAPONS = [
+  { name: 'базука', angle: 0.44, power: 0.6 },
+  { name: 'граната', angle: 0.95, power: 0.32 },
+  { name: 'кассета', angle: 0.44, power: 0.6 },
+  { name: 'крот', angle: 0.44, power: 0.6 },
+];
 for (let i = 0; i < WEAPONS.length; i++) {
   await waitAim();
-  const before = await page.evaluate((wi) => {
+  const before = await page.evaluate(([wi, angle]) => {
     const s = window.__WORMS__.scene.getScene('Game');
     s.turn.setWeaponIndex(wi);
-    // Целимся в сторону ближайшего противника под пологим углом: при
-    // фиксированном заряде снаряд гарантированно падает на остров, а не
-    // улетает в воду — иначе проверка воронки мигала бы от карты к карте.
+    // Целимся в сторону ближайшего противника: так снаряд летит вдоль
+    // острова, а не с него.
     const w = s.turn.activeWorm;
     const e = s.worms.find((o) => o.alive && o.team !== w.team);
     if (e) w.facing = e.x >= w.x ? 1 : -1;
-    s.aimAngle = 0.44;
+    s.aimAngle = angle;
     return { turn: s.turn.turnNumber, solid: s.terrain.solid.reduce((a, v) => a + v, 0) };
-  }, i);
+  }, [i, WEAPONS[i].angle]);
 
+  // Кнопку отпускаем не по часам, а по самой шкале: сила выстрела тогда
+  // одна и та же в каждом прогоне, а не «сколько успело набежать».
   await page.mouse.move(...px(BTN.fire.x, BTN.fire.y));
   await page.mouse.down();
-  await page.waitForTimeout(700);
+  await page.waitForFunction(
+    (p) => window.__WORMS__.scene.getScene('Game').charge >= p,
+    WEAPONS[i].power, { timeout: 10000 },
+  );
   await page.mouse.up();
 
   await page.waitForFunction(
@@ -181,7 +194,7 @@ for (let i = 0; i < WEAPONS.length; i++) {
   const after = await page.evaluate(
     () => window.__WORMS__.scene.getScene('Game').terrain.solid.reduce((a, v) => a + v, 0),
   );
-  check(`${WEAPONS[i]}: воронка в земле`, before.solid - after > 200,
+  check(`${WEAPONS[i].name}: воронка в земле`, before.solid - after > 200,
     `${before.solid - after} px`);
 }
 
