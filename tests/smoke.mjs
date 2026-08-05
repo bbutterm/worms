@@ -185,6 +185,15 @@ for (let i = 0; i < WEAPONS.length; i++) {
     `${before.solid - after} px`);
 }
 
+// Четыре взрыва подряд иногда выбивают команду целиком, и партия
+// заканчивается. Дальше проверяется интерфейс, а не бой, поэтому начинаем
+// с чистого листа: иначе первый же тап уходил бы в «начать заново», и
+// следующие проверки ехали бы по чужому состоянию.
+await page.evaluate(() => window.__WORMS__.scene.getScene('Game').scene.restart());
+await ready();
+await page.waitForTimeout(1200);
+await page.evaluate(() => window.__WORMS__.scene.getScene('Game').hud.setHelp(false));
+
 // --- короткое касание не тратит ход ---
 await waitAim();
 const beforeTap = await state();
@@ -277,13 +286,15 @@ await page.evaluate(() => window.__WORMS__.scene.getScene('Game').rig.setZoom(1)
 await touch('touchStart', [[view.w / 2 - 240, 300], [view.w / 2 + 240, 300]]);
 const cx = Math.round(view.w / 2);
 for (const d of [400, 300, 200, 130]) await touch('touchMove', [[cx - d / 2, 300], [cx + d / 2, 300]]);
-await touch('touchEnd', []);
+// Пальцы снимаем поимённо: в touchEnd перечисляются те, что убираются, и
+// пустой список оставлял их «прижатыми» — следующие касания разъезжались.
+await touch('touchEnd', [[cx - 65, 300], [cx + 65, 300]]);
 const pinchedIn = await zoomNow();
 check('пинч двумя пальцами отдаляет', pinchedIn < 0.95, `зум ${pinchedIn.toFixed(2)}`);
 
 await touch('touchStart', [[view.w / 2 - 70, 300], [view.w / 2 + 70, 300]]);
 for (const d of [140, 300, 460, 640]) await touch('touchMove', [[cx - d / 2, 300], [cx + d / 2, 300]]);
-await touch('touchEnd', []);
+await touch('touchEnd', [[cx - 320, 300], [cx + 320, 300]]);
 const pinchedOut = await zoomNow();
 check('пинч двумя пальцами приближает', pinchedOut > pinchedIn,
   `${pinchedIn.toFixed(2)} → ${pinchedOut.toFixed(2)}`);
@@ -295,20 +306,27 @@ check('пинч двумя пальцами приближает', pinchedOut > 
 // Про CDP: в touchEnd перечисляются пальцы, которые СНИМАЮТСЯ, а не те,
 // что остаются. На этом первая версия проверки и попалась — она снимала
 // «ОГОНЬ» вместо ▲ и обвиняла игру в собственной ошибке.
+// Окно короткое намеренно: шкала заряжается за 1.1 с и на максимуме
+// стреляет сама. Первая версия проверки не укладывалась и ловила этот
+// штатный выстрел, принимая его за сорванный курок.
 await waitAim();
-await page.evaluate(() => window.__WORMS__.scene.getScene('Game').rig.setZoom(1));
+await page.evaluate(() => {
+  const s = window.__WORMS__.scene.getScene('Game');
+  s.rig.setZoom(1);
+  s.aimAngle = 0.5;      // от прошлых шагов угол мог упереться в предел
+});
 const beforeCharge = await state();
 const FINGER_FIRE = [BTN.fire.x, BTN.fire.y, 0];
 const FINGER_AIM = [BTN.aimUp.x, BTN.aimUp.y, 1];
 
 await touch('touchStart', [FINGER_FIRE]);
-await page.waitForTimeout(140);
+await page.waitForTimeout(60);
 const charging1 = await state();
 
 await touch('touchStart', [FINGER_FIRE, FINGER_AIM]);
-await page.waitForTimeout(200);
-await touch('touchEnd', [FINGER_AIM]);       // снимаем только второй палец
 await page.waitForTimeout(90);
+await touch('touchEnd', [FINGER_AIM]);       // снимаем только второй палец
+await page.waitForTimeout(60);
 const aimedWhileCharging = await state();
 
 check('угол меняется, пока держишь «ОГОНЬ»',
