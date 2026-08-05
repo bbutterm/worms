@@ -269,7 +269,12 @@ export class Hud {
     // Снизу слева от панели оружия: справа сверху она перекрывала
     // указатели на бойцов вне экрана.
     this._tap(206, H - 62, 48, 'help', () => this.toggleHelp());
-    this._tap(206 + 48 + 8, H - 62, 48, 'link', () => s.shareInvite());
+    this._tap(206 + 56, H - 62, 48, 'home', () => s.toMenu());
+    // Приглашение по ссылке нужно только в сетевой партии: в кампании эта
+    // кнопка молча бросала бы миссию
+    if (s.match?.mode === 'online') {
+      this._tap(206 + 112, H - 62, 48, 'link', () => s.shareInvite());
+    }
 
     // Строка сетевого статуса живёт над этими кнопками и в локальной
     // партии пуста — обычной игре она не мешает
@@ -283,7 +288,8 @@ export class Hud {
       'тянуть фон — камера, два пальца — приблизить',
       'кнопки справа — вернуть камеру и обзор всей карты',
       'свайп прямо по бойцу — быстрый выстрел',
-      'кнопка со звеньями — игра вдвоём по ссылке',
+      'домик внизу слева — выход в меню',
+      ...(s.match?.mode === 'online' ? ['звенья цепи — позвать второго по ссылке'] : []),
     ];
     const w = 560, h = lines.length * 27 + 96;
     const x = Math.round((W - w) / 2), y = Math.round((H - h) / 2);
@@ -364,7 +370,7 @@ export class Hud {
 
   _updateTimer(turn) {
     const left = Math.max(0, turn.timeLeft);
-    const frac = Phaser.Math.Clamp(left / CFG.TURN_TIME, 0, 1);
+    const frac = Phaser.Math.Clamp(left / (this.scene.turnTime ?? CFG.TURN_TIME), 0, 1);
     const urgent = left <= 5;
     const color = urgent ? 0xff6b6b : left <= 12 ? 0xffd166 : 0x6ee36e;
 

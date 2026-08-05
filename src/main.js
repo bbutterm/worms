@@ -1,5 +1,6 @@
 import { CFG, fitViewToScreen } from './config.js';
 import BootScene from './scenes/BootScene.js';
+import MenuScene from './scenes/MenuScene.js';
 import GameScene from './scenes/GameScene.js';
 import { initTelegram } from './platform/telegram.js';
 
@@ -58,7 +59,7 @@ const game = new Phaser.Game({
     // регистрируется вовсе и пинч не работает.
     activePointers: 3,
   },
-  scene: [BootScene, GameScene],
+  scene: [BootScene, MenuScene, GameScene],
 });
 
 window.__WORMS__ = game;

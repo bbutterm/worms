@@ -74,6 +74,37 @@ const waitAim = () => page.waitForFunction(
   null, { timeout: 40000 },
 );
 
+// Игра теперь начинается с меню, и тест проходит его так же, как игрок:
+// «Быстрая игра» → «Вдвоём на одном устройстве».
+const menuReady = () => page.waitForFunction(
+  () => window.__WORMS__?.scene.isActive('Menu')
+    && Object.keys(window.__WORMS__.scene.getScene('Menu').buttons).length > 0,
+  null, { timeout: 40000 },
+);
+const menuTap = async (key) => {
+  const b = await page.evaluate((k) => {
+    const m = window.__WORMS__.scene.getScene('Menu');
+    return m.buttons[k] ?? null;
+  }, key);
+  if (!b) throw new Error(`нет кнопки меню: ${key}`);
+  const g = await page.evaluate(() => {
+    const game = window.__WORMS__;
+    const r = game.canvas.getBoundingClientRect();
+    return { w: game.scale.width, h: game.scale.height, left: r.left, top: r.top,
+      cw: r.width, ch: r.height };
+  });
+  await page.mouse.click(
+    Math.round(g.left + (b.x * g.cw) / g.w),
+    Math.round(g.top + (b.y * g.ch) / g.h),
+  );
+  await page.waitForTimeout(300);
+};
+
+await menuReady();
+check('меню открылось первым', true);
+await menuTap('quick');
+await menuTap('hotseat');
+
 await ready();
 await page.waitForTimeout(1500);
 

@@ -170,6 +170,23 @@ const ICONS = {
   },
   overview: (ctx, s) => corners(ctx, s, true),
   fullscreen: (ctx, s) => corners(ctx, s, false),
+  // Домик: выход в меню
+  home: (ctx, s) => {
+    stroke(ctx, s);
+    const c = s / 2, w = s * 0.26, h = s * 0.2;
+    ctx.beginPath();
+    ctx.moveTo(c - w - s * 0.05, c - h * 0.1);
+    ctx.lineTo(c, c - h - s * 0.14);
+    ctx.lineTo(c + w + s * 0.05, c - h * 0.1);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(c - w, c - h * 0.05);
+    ctx.lineTo(c - w, c + h + s * 0.06);
+    ctx.lineTo(c + w, c + h + s * 0.06);
+    ctx.lineTo(c + w, c - h * 0.05);
+    ctx.stroke();
+  },
+
   // Два звена цепи: приглашение по ссылке
   link: (ctx, s) => {
     stroke(ctx, s);

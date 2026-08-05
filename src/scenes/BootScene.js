@@ -1,4 +1,5 @@
 import { IMAGES, SHEETS, meta, missing } from '../core/assets.js';
+import { onlineMatch } from '../core/match.js';
 
 /**
  * Загрузка спрайтов. Отсутствие любого файла не ломает игру:
@@ -60,6 +61,9 @@ export default class BootScene extends Phaser.Scene {
       );
     }
 
-    this.scene.start('Game');
+    // Ссылка-приглашение ведёт прямо в партию, минуя меню: открыл — играешь
+    const online = new URLSearchParams(location.search).has('room');
+    if (online) this.registry.set('match', onlineMatch());
+    this.scene.start(online ? 'Game' : 'Menu');
   }
 }

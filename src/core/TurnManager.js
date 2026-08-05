@@ -15,7 +15,7 @@ export class TurnManager {
     this.state = STATE.RESOLVE;
     this.currentTeam = 0;
     this.activeWorm = null;
-    this.timeLeft = CFG.TURN_TIME;
+    this.timeLeft = this.scene.turnTime ?? CFG.TURN_TIME;
     this.resolveTimer = 0;
     this.flyTimer = 0;
     this.holdTimer = 0;     // сколько ждём ход соперника
@@ -93,7 +93,7 @@ export class TurnManager {
     this.currentTeam = team;
     this.activeWorm = worm;
     this.turnNumber++;
-    this.timeLeft = CFG.TURN_TIME;
+    this.timeLeft = this.scene.turnTime ?? CFG.TURN_TIME;
     this.state = STATE.AIM;
 
     // Оружие могло кончиться у этой команды — откатываемся на доступное
@@ -107,8 +107,10 @@ export class TurnManager {
     // лишний вызов генератора у одного из игроков разъехал бы всю партию.
     this.scene.beginTurnRandom(this.turnNumber);
     this.scene.maybeDropCrate();
-    this.scene.setWind(this.scene.turnRng.range(CFG.WIND_MIN, CFG.WIND_MAX));
+    // Ветер разыгрывает сцена: у миссии он может быть свой или вовсе нулевой
+    this.scene.rollWind();
     this.scene.resetAim();
+    this.scene.onTurnBegin?.();
 
     for (const w of this.scene.worms) w.setActiveMarker(w === worm);
     this.scene.followTarget = worm;
@@ -135,7 +137,7 @@ export class TurnManager {
     this.activeWorm = worm;
     this.turnNumber = info.turn;
     this.teamCursor = info.cursors ? info.cursors.slice() : this.teamCursor;
-    this.timeLeft = CFG.TURN_TIME;
+    this.timeLeft = this.scene.turnTime ?? CFG.TURN_TIME;
     this.holdTimer = 0;
     this.state = STATE.AIM;
 

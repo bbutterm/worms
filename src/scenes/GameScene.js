@@ -15,6 +15,9 @@ import { captureCommand } from '../net/protocol.js';
 import { NetSession } from '../net/session.js';
 import { ChannelTransport, SupabaseTransport, randomRoom, copyText } from '../net/transport.js';
 import { supabaseConfig, loadCreateClient } from '../net/supabase.js';
+import { HOTSEAT } from '../core/match.js';
+import { Bot } from '../ai/Bot.js';
+import { markDone } from '../campaign/missions.js';
 import { OffscreenMarkers } from '../ui/OffscreenMarkers.js';
 import { CameraRig } from '../ui/CameraRig.js';
 
@@ -22,6 +25,12 @@ export default class GameScene extends Phaser.Scene {
   constructor() { super('Game'); }
 
   create() {
+    // Что за партия — решает меню. Прямой заход по адресу описания не даёт,
+    // и тогда игра ведёт себя как раньше: обычный хотсит на одном устройстве.
+    this.match = this.registry.get('match') ?? HOTSEAT;
+    this.rules = this.match.rules ?? {};
+    this.turnTime = this.rules.turnTime ?? CFG.TURN_TIME;
+
     // Зерно задаётся снаружи (сеть, ?seed= в адресе) либо разыгрывается.
     // От него полностью зависят карта, расстановка и всё, что случайно.
     this.seed = this._chooseSeed();
@@ -65,12 +74,67 @@ export default class GameScene extends Phaser.Scene {
 
     this._spawnWorms();
     this._setupKeyboard();
+    this._setupBots();
+    this._applyAmmoRules();
 
     this.rig.bgCam.setBackgroundColor(biome.fallback.sky[1]);
-    this.turn.begin(this.rng.int(0, CFG.TEAMS - 1));
+    // Первым ходит человек: отдавать первый ход боту в миссии — почти то же,
+    // что начать её с потери бойца.
+    this.turn.begin(this._firstTeam());
 
     this._setupNet();
     this.events.once('shutdown', this._shutdown, this);
+  }
+
+  // ------------------------------------------------------------------ боты
+
+  _setupBots() {
+    this.bots = this.match.teams.map(
+      (t) => (t.control === 'bot' ? new Bot(this, t.level) : null),
+    );
+  }
+
+  /** Первой ходит команда человека; если людей нет — просто первая. */
+  _firstTeam() {
+    const human = this.match.teams.findIndex((t) => t.control !== 'bot');
+    return human >= 0 ? human : 0;
+  }
+
+  botFor(team) { return this.bots?.[team] ?? null; }
+
+  isBotTurn() {
+    return !!this.botFor(this.turn.currentTeam) && this.turn.state === STATE.AIM;
+  }
+
+  /** Начало хода: боту нужен чистый план, чужой ему не годится. */
+  onTurnBegin() {
+    for (const b of this.bots ?? []) b?.reset();
+  }
+
+  _applyAmmoRules() {
+    const set = (team, table) => {
+      if (!table) return;
+      for (const [id, count] of Object.entries(table)) {
+        const i = WEAPONS.findIndex((w) => w.id === id);
+        if (i >= 0 && this.turn.ammo[team][i] !== null) this.turn.ammo[team][i] = count;
+      }
+    };
+    this.match.teams.forEach((t, team) => {
+      set(team, t.control === 'bot' ? this.rules.enemyAmmo : this.rules.ammo);
+    });
+  }
+
+  /**
+   * Ветер на ход. Обычно случайный, но миссия может задать свой диапазон
+   * или прибить ветер намертво — на этом построена «Пристрелка».
+   */
+  rollWind() {
+    if (Number.isFinite(this.rules.wind)) return this.setWind(this.rules.wind);
+    const [lo, hi] = this.rules.windRange ?? [CFG.WIND_MIN, CFG.WIND_MAX];
+    // Диапазон вида [190, 300] означает «сильно, в любую сторону»
+    const v = this.turnRng.range(lo, hi);
+    const sign = this.rules.windRange && lo > 0 ? (this.turnRng() < 0.5 ? -1 : 1) : 1;
+    this.setWind(v * sign);
   }
 
   // ------------------------------------------------------------------ сеть
@@ -265,17 +329,24 @@ export default class GameScene extends Phaser.Scene {
       .setOrigin(0, 0).setDepth(DEPTH.WATER));
   }
 
+  /**
+   * Расстановка. Состав команд берётся из описания партии: в миссиях
+   * стороны бывают неравными, и «по два бойца всем» тут не годится.
+   * Команды чередуются слева направо, пока у кого-то не кончились бойцы.
+   */
   _spawnWorms() {
-    const total = CFG.TEAMS * CFG.WORMS_PER_TEAM;
-    const spots = this._findSpawnSpots(total);
+    const sizes = this.match.teams.map((t) => t.worms ?? CFG.WORMS_PER_TEAM);
+    const order = [];
+    for (let i = 0; i < Math.max(...sizes); i++) {
+      sizes.forEach((n, team) => { if (i < n) order.push({ team, idx: i }); });
+    }
 
-    for (let i = 0; i < total; i++) {
-      const team = i % CFG.TEAMS;
-      const idx = Math.floor(i / CFG.TEAMS);
+    const spots = this._findSpawnSpots(order.length);
+    order.forEach(({ team, idx }, i) => {
       const x = spots[i] ?? this.rng.range(300, CFG.WORLD_W - 300);
       const top = this.terrain.surfaceYAt(x, 0) ?? CFG.GROUND_BASE - 100;
       this.worms.push(new Worm(this, x, top - 1, team, idx));
-    }
+    });
   }
 
   /**
@@ -365,6 +436,10 @@ export default class GameScene extends Phaser.Scene {
     this._lastNow = now;
 
     this._handleMovement(dt, realDt);
+    // Бот решает и «держит кнопку» до набора силы — оба шага на системных
+    // часах, иначе доворот ствола шёл бы в разы медленнее задуманного.
+    if (this.isBotTurn()) this.botFor(this.turn.currentTeam).update(realDt);
+    this._tickCharge(realDt);
 
     for (const w of this.worms) w.update(dt);
 
@@ -404,7 +479,9 @@ export default class GameScene extends Phaser.Scene {
     const w = this.turn.activeWorm;
     if (!this.canPlayerAct() || !w || !w.alive) {
       this.moveInput.jumpQueued = false;
-      if (this.charging) this.cancelCharge();
+      // Гасим только заряд игрока: у бота он набирается своим чередом,
+      // и сброс тут оставил бы его держать кнопку вечно.
+      if (this.charging && !this.isBotTurn()) this.cancelCharge();
       return;
     }
     const k = this.keys;
@@ -431,10 +508,17 @@ export default class GameScene extends Phaser.Scene {
     const pressed = this.moveInput.fire || k.fire.isDown;
     if (pressed && !this.charging) this.beginCharge();
     else if (!pressed && this.charging) this.releaseCharge();
-    else if (this.charging) {
-      this.charge += realDt / CFG.CHARGE_TIME;
-      if (this.charge >= 1) { this.charge = 1; this.releaseCharge(); }
-    }
+  }
+
+  /**
+   * Набор силы вынесен из обработки ввода: шкалу копит и игрок, держащий
+   * «Огонь», и бот, который её «держит» из своего кода.
+   */
+  _tickCharge(realDt) {
+    if (!this.charging) return;
+    if (!this.canAct()) { this.cancelCharge(); return; }
+    this.charge = Math.min(1, this.charge + realDt / CFG.CHARGE_TIME);
+    if (this.charge >= 1) this.releaseCharge();
   }
 
   // ------------------------------------------------------- прицел и заряд
@@ -453,7 +537,7 @@ export default class GameScene extends Phaser.Scene {
   }
 
   beginCharge() {
-    if (!this.canPlayerAct()) return;
+    if (!this.canAct()) return;      // заряд набирает и бот, той же кнопкой
     this.charging = true;
     this.charge = 0;
   }
@@ -521,7 +605,7 @@ export default class GameScene extends Phaser.Scene {
   /** Сброс ящика в начале хода. */
   maybeDropCrate() {
     if (this.crates.length >= CFG.CRATE_MAX) return;
-    if (this.turnRng() > CFG.CRATE_CHANCE) return;
+    if (this.turnRng() > (this.rules.crateChance ?? CFG.CRATE_CHANCE)) return;
 
     const spots = [];
     for (let x = 200; x < CFG.WORLD_W - 200; x += 24) {
@@ -560,12 +644,25 @@ export default class GameScene extends Phaser.Scene {
 
   // -------------------------------------------------------------- геймплей
 
-  canPlayerAct() {
+  /**
+   * Можно ли сейчас действовать вообще — этим пользуется и бот.
+   * Ход чужой команды в сети сюда не попадает: там действует соперник.
+   */
+  canAct() {
     if (this.turn.state !== STATE.AIM) return false;
     if (this.replaying) return false;         // идёт показ чужого хода
     // В сетевой партии ходит только тот, чья команда сейчас на очереди
     if (this.net?.connected && this.net.myTeam !== this.turn.currentTeam) return false;
     return true;
+  }
+
+  /**
+   * Можно ли действовать игроку. Отличается от canAct ровно одним: пока
+   * ходит бот, кнопки и клавиши молчат — иначе игрок «помогал» бы ему
+   * целиться, и ход уходил бы в никуда.
+   */
+  canPlayerAct() {
+    return this.canAct() && !this.isBotTurn();
   }
 
   /**
@@ -595,7 +692,7 @@ export default class GameScene extends Phaser.Scene {
     const w = this.turn.activeWorm;
     // Показ чужого хода идёт мимо проверки прав: приказ уже состоялся
     // у соперника, наше дело — повторить его на экране.
-    const allowed = this.replaying ? this.turn.state === STATE.AIM : this.canPlayerAct();
+    const allowed = this.replaying ? this.turn.state === STATE.AIM : this.canAct();
     if (!allowed || !w || !w.alive) return;
 
     const len = Math.hypot(vx, vy) || 1;
@@ -699,11 +796,26 @@ export default class GameScene extends Phaser.Scene {
     return null;
   }
 
+  /** Команда, за которую играет этот человек: своя в сети, иначе первая. */
+  get myTeamIndex() {
+    if (this.net?.connected && this.net.myTeam !== null) return this.net.myTeam;
+    return this.match.teams.findIndex((t) => t.control !== 'bot');
+  }
+
   onGameOver(winner) {
     if (this.gameOverUi) return;
 
-    const text = winner >= 0 ? `Победа: ${TEAM_NAMES[winner]}!` : 'Ничья';
+    // Где есть бот или сеть, «победа красных» ничего не говорит: важно,
+    // выиграл ли ты. В хотсите наоборот — команды равноправны.
+    const solo = this.bots?.some(Boolean) || this.net?.connected;
+    const mine = this.myTeamIndex;
+    let text;
+    if (winner < 0) text = 'Ничья';
+    else if (solo) text = winner === mine ? 'Победа!' : 'Поражение';
+    else text = `Победа: ${TEAM_NAMES[winner]}!`;
     const color = winner >= 0 ? TEAM_COLORS[winner] : 0xffffff;
+
+    if (this.match.mode === 'campaign' && winner === mine) markDone(this.match.missionId);
 
     const shade = this.rig.ui(this.add.rectangle(0, 0, CFG.VIEW_W, CFG.VIEW_H, 0x070b14, 0.55)
       .setOrigin(0, 0).setScrollFactor(0).setDepth(DEPTH.HUD + 10));
@@ -711,16 +823,33 @@ export default class GameScene extends Phaser.Scene {
       font(46, 800, `#${color.toString(16).padStart(6, '0')}`))
       .setOrigin(0.5).setScrollFactor(0).setDepth(DEPTH.HUD + 11);
     this.rig.ui(title);
+    // В сети рестарт врозь развалил бы синхронность, поэтому там оба
+    // возвращаются в лобби; в кампании — к списку миссий.
+    const backToMenu = this.match.mode !== 'quick';
     const sub = this.add.text(CFG.VIEW_W / 2, CFG.VIEW_H / 2 + 32,
-      'тап или R — новая карта', font(18, 700, UI.textDim))
+      backToMenu ? 'тап — в меню' : 'тап или R — новая карта',
+      font(18, 700, UI.textDim))
       .setOrigin(0.5).setScrollFactor(0).setDepth(DEPTH.HUD + 11);
     this.rig.ui(sub);
 
     this.gameOverUi = [shade, title, sub];
 
     this.time.delayedCall(600, () => {
-      this.input.once('pointerdown', () => this.scene.restart());
+      this.input.once('pointerdown', () => (backToMenu ? this.toMenu() : this.scene.restart()));
     });
+  }
+
+  /** Выход в меню: сетевую сессию рвём, иначе она переживёт партию. */
+  toMenu() {
+    this.net?.destroy();
+    this.registry.set('net', null);
+    this.registry.set('seed', null);
+    if (new URLSearchParams(location.search).has('room')) {
+      const url = new URL(location.href);
+      url.searchParams.delete('room');
+      history.replaceState(null, '', url);
+    }
+    this.scene.start('Menu');
   }
 
   _shutdown() {
