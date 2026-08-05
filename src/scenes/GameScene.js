@@ -1,5 +1,5 @@
 import { CFG, DEPTH, TEAM_COLORS, TEAM_NAMES } from '../config.js';
-import { makeRng } from '../core/rng.js';
+import { makeRng, subRng } from '../core/rng.js';
 import { BIOMES, pickBiome } from '../core/biomes.js';
 import { Terrain } from '../core/Terrain.js';
 import { TurnManager, STATE } from '../core/TurnManager.js';
@@ -11,6 +11,7 @@ import { Fx } from '../ui/Fx.js';
 import { AimController } from '../ui/AimController.js';
 import { font, UI } from '../ui/theme.js';
 import { WEAPONS } from '../weapons/index.js';
+import { captureCommand } from '../net/protocol.js';
 import { OffscreenMarkers } from '../ui/OffscreenMarkers.js';
 import { CameraRig } from '../ui/CameraRig.js';
 
@@ -18,8 +19,14 @@ export default class GameScene extends Phaser.Scene {
   constructor() { super('Game'); }
 
   create() {
-    this.rng = makeRng((Date.now() ^ (Math.random() * 0xffffffff)) >>> 0);
+    // Зерно задаётся снаружи (сеть, ?seed= в адресе) либо разыгрывается.
+    // От него полностью зависят карта, расстановка и всё, что случайно.
+    this.seed = this._chooseSeed();
+    this.rng = makeRng(this.seed);
+    this.turnRng = subRng(this.seed, 0);
+    this.explosionLog = [];
     this.wind = 0;
+    this.replaying = false;   // показываем чужой ход: без урона и разрушений
     this.worms = [];
     this.projectiles = [];
     this.crates = [];
@@ -63,6 +70,14 @@ export default class GameScene extends Phaser.Scene {
   }
 
   // ------------------------------------------------------------- построение
+
+  _chooseSeed() {
+    const forced = this.registry.get('seed')
+      ?? new URLSearchParams(location.search).get('seed');
+    const n = Number.parseInt(forced, 10);
+    if (Number.isFinite(n)) return n >>> 0;
+    return (Date.now() ^ (Math.random() * 0xffffffff)) >>> 0;
+  }
 
   /** Биом случайный; можно зафиксировать через ?biome=tundra — удобно для отладки. */
   _chooseBiome() {
@@ -394,7 +409,7 @@ export default class GameScene extends Phaser.Scene {
   /** Сброс ящика в начале хода. */
   maybeDropCrate() {
     if (this.crates.length >= CFG.CRATE_MAX) return;
-    if (this.rng() > CFG.CRATE_CHANCE) return;
+    if (this.turnRng() > CFG.CRATE_CHANCE) return;
 
     const spots = [];
     for (let x = 200; x < CFG.WORLD_W - 200; x += 24) {
@@ -402,8 +417,8 @@ export default class GameScene extends Phaser.Scene {
     }
     if (!spots.length) return;
 
-    const kind = this.rng() < CFG.CRATE_HEALTH_CHANCE ? 'health' : 'weapon';
-    this.crates.push(new Crate(this, this.rng.pick(spots), kind));
+    const kind = this.turnRng() < CFG.CRATE_HEALTH_CHANCE ? 'health' : 'weapon';
+    this.crates.push(new Crate(this, this.turnRng.pick(spots), kind));
   }
 
   /** Боец, наступивший на ящик, забирает его. */
@@ -424,7 +439,7 @@ export default class GameScene extends Phaser.Scene {
       worm.heal(CFG.CRATE_HEALTH);
       this.fx.pickup(crate.x, crate.y, `+${CFG.CRATE_HEALTH} здоровья`, '#7de07d');
     } else {
-      const i = this.turn.randomCrateWeapon(this.rng);
+      const i = this.turn.randomCrateWeapon(this.turnRng);
       const w = WEAPONS[i];
       this.turn.addAmmo(i, w.crateAmmo, worm.team);
       this.fx.pickup(crate.x, crate.y, `${w.name} +${w.crateAmmo}`, '#ffd166');
@@ -438,6 +453,12 @@ export default class GameScene extends Phaser.Scene {
   }
 
   setWind(v) { this.wind = v; }
+
+  /** Новый поток случайности на ход и чистый журнал взрывов. */
+  beginTurnRandom(turnNumber) {
+    this.turnRng = subRng(this.seed, turnNumber);
+    this.explosionLog = [];
+  }
 
   setCameraManual(on) { this.rig.manual = on; this.rig.idle = 0; }
 
@@ -459,6 +480,9 @@ export default class GameScene extends Phaser.Scene {
     const sy = ray.hit ? ray.freeY : ray.y;
 
     w.facing = nx >= 0 ? 1 : -1;
+    // Приказ уходит наружу до симуляции: сеть должна получить ровно то,
+    // что игрок задал, а не то, что из этого вышло локально.
+    if (!this.replaying) this.onShot?.(captureCommand(this, vx, vy));
     const shots = this.turn.weapon.fire(this, sx, sy, vx, vy, w);
     this.projectiles.push(...shots);
     this.turn.onFired();
@@ -471,6 +495,14 @@ export default class GameScene extends Phaser.Scene {
    * и отбрасываем бойцов вектором от эпицентра.
    */
   explode(x, y, cfg, owner = null) {
+    // Во время показа чужого хода взрыв только рисуется: землю и урон
+    // принесёт авторитетный снимок состояния, иначе применится дважды.
+    if (this.replaying) {
+      this.fx.explosion(x, y, cfg.radius);
+      this.rig.shake(220, cfg.shake ?? 0.006);
+      return;
+    }
+    this.explosionLog.push({ x: Math.round(x), y: Math.round(y), r: cfg.radius });
     this.terrain.destroyCircle(x, y, cfg.radius);
     this.fx.explosion(x, y, cfg.radius);
     this.rig.shake(220, cfg.shake ?? 0.006);

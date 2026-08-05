@@ -338,6 +338,83 @@ check('ящик приземляется', crate.landed === true);
 check('боец подбирает аптечку', crate.collected && crate.health > 40,
   `здоровье ${crate.health}`);
 
+// --- воспроизводимость по зерну (основа сетевой игры) ---
+const repro = await page.evaluate(async () => {
+  const s = window.__WORMS__.scene.getScene('Game');
+  const snap = () => {
+    const g = window.__WORMS__.scene.getScene('Game');
+    return {
+      seed: g.seed,
+      biome: g.terrain.biome.id,
+      terrain: g.terrain.hash(),
+      spawns: g.worms.map((w) => `${Math.round(w.x)}`).join(','),
+      // случайность хода не должна зависеть от порядка вызовов
+      turn7: [0, 1, 2].map(() => {
+        g.beginTurnRandom(7);
+        return Math.round(g.turnRng() * 1e6);
+      }).join('|'),
+    };
+  };
+  s.registry.set('seed', 424242);
+  s.scene.restart();
+  await new Promise((r) => setTimeout(r, 2500));
+  const a = snap();
+  window.__WORMS__.scene.getScene('Game').scene.restart();
+  await new Promise((r) => setTimeout(r, 2500));
+  const b = snap();
+  return { a, b };
+});
+check('одно зерно — одна карта', repro.a.terrain === repro.b.terrain,
+  `${repro.a.terrain} / ${repro.b.terrain}`);
+check('одно зерно — одна расстановка', repro.a.spawns === repro.b.spawns);
+check('одно зерно — один биом', repro.a.biome === repro.b.biome);
+check('случайность хода не зависит от порядка вызовов',
+  repro.a.turn7.split('|').every((v, _, arr) => v === arr[0]), repro.a.turn7);
+
+// --- протокол: приказ и снимок ---
+await page.waitForFunction(() => window.__WORMS__.scene.getScene('Game').turn?.activeWorm,
+  null, { timeout: 40000 });
+await page.waitForTimeout(800);
+const proto = await page.evaluate(async () => {
+  const mod = await import('/src/net/protocol.js');
+  const s = window.__WORMS__.scene.getScene('Game');
+  s.hud.setHelp(false);
+
+  // приказ формируется при выстреле
+  let cmd = null;
+  s.onShot = (c) => { cmd = c; };
+  const w = s.turn.activeWorm;
+  const e = s.worms.find((o) => o.alive && o.team !== w.team);
+  if (e) w.facing = e.x >= w.x ? 1 : -1;
+  s.aimAngle = 0.44;
+  s.fireActiveWorm(400, -400);
+
+  const before = mod.captureState(s);
+  const h1 = mod.stateHash(before);
+
+  // портим состояние и восстанавливаем из снимка
+  s.worms.forEach((x) => { x.health = 7; x.x += 40; });
+  s.turn.ammo[0][1] = 99;
+  mod.applyState(s, before);
+  const after = mod.captureState(s);
+
+  return {
+    cmd, h1, h2: mod.stateHash(after),
+    hp: s.worms.map((x) => x.health).join(','),
+    beforeHp: before.worms.map((x) => x.hp).join(','),
+    cfg: mod.matchConfig(s),
+  };
+});
+check('приказ формируется при выстреле',
+  proto.cmd && proto.cmd.type === 'shot' && Number.isFinite(proto.cmd.vx),
+  proto.cmd ? `оружие ${proto.cmd.weapon}, боец ${proto.cmd.worm}` : 'нет');
+check('снимок восстанавливает состояние', proto.h1 === proto.h2,
+  `${proto.h1} / ${proto.h2}`);
+check('здоровье вернулось из снимка', proto.hp === proto.beforeHp,
+  `${proto.hp} vs ${proto.beforeHp}`);
+check('параметры партии содержат зерно и биом',
+  Number.isFinite(proto.cfg.seed) && !!proto.cfg.biome);
+
 // --- победа и рестарт ---
 await waitAim();
 await page.evaluate(() => {

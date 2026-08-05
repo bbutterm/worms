@@ -19,7 +19,8 @@ npm run dev          # http://localhost:5173
 python3 -m http.server 5173
 ```
 
-Отладочный параметр: `?biome=jungle|desert|snow|hell|forest|urban` фиксирует тему.
+Отладочные параметры: `?biome=jungle|desert|snow|hell|forest|urban` фиксирует
+тему, `?seed=12345` — карту (одно зерно даёт одинаковый остров и расстановку).
 
 ---
 

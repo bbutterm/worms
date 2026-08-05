@@ -76,10 +76,13 @@ export class ClusterWeapon extends Weapon {
     scene.explode(x, y, this.explosion, projectile.owner);
     const out = [];
     const spread = Math.PI * 0.62;
+    // Разброс бомблетов берём из ГПСЧ хода, а не из Math.random: иначе
+    // у двух игроков по сети кассета разлетится по-разному.
+    const rng = scene.turnRng;
     for (let i = 0; i < this.clusterCount; i++) {
       const t = this.clusterCount === 1 ? 0.5 : i / (this.clusterCount - 1);
       const a = -Math.PI / 2 - spread / 2 + spread * t;
-      const s = this.clusterSpeed * (0.8 + Math.random() * 0.4);
+      const s = this.clusterSpeed * (0.8 + rng() * 0.4);
       out.push(new Projectile(
         scene, x, y - 6,
         Math.cos(a) * s + projectile.vx * 0.15,

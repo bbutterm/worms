@@ -335,6 +335,20 @@ export class Terrain {
     return { x: nx / len, y: ny / len };
   }
 
+  /**
+   * Короткая свёртка геометрии — для сверки карты между игроками.
+   * Считается по выборке, полного обхода 2.3 млн пикселей не нужно.
+   */
+  hash() {
+    let h = 2166136261;
+    for (let x = 0; x < this.width; x += 16) {
+      const y = this.surfaceYAt(x, 0) ?? -1;
+      h ^= y | 0;
+      h = Math.imul(h, 16777619);
+    }
+    return (h >>> 0).toString(16);
+  }
+
   /** Свободна ли колонка сверху — для выбора точек спавна. */
   isSpawnable(x) {
     const top = this.surfaceYAt(x, 0);

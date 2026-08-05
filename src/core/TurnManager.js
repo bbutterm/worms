@@ -102,10 +102,11 @@ export class TurnManager {
     }
     this.scene.hud.setWeaponIndex(this.weaponIndex);
 
+    // Случайность хода — функция от (зерно, номер хода), а не общий поток:
+    // лишний вызов генератора у одного из игроков разъехал бы всю партию.
+    this.scene.beginTurnRandom(this.turnNumber);
     this.scene.maybeDropCrate();
-
-    // Ветер случайный в начале каждого хода
-    this.scene.setWind(this.scene.rng.range(CFG.WIND_MIN, CFG.WIND_MAX));
+    this.scene.setWind(this.scene.turnRng.range(CFG.WIND_MIN, CFG.WIND_MAX));
     this.scene.resetAim();
 
     for (const w of this.scene.worms) w.setActiveMarker(w === worm);
