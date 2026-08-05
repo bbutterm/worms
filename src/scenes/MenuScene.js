@@ -77,6 +77,7 @@ export default class MenuScene extends Phaser.Scene {
     for (const o of this.items) o.destroy();
     this.items = [];
     this.buttons = {};
+    this.copiedLabel = null;
   }
 
   _title(text, sub = '') {
@@ -244,8 +245,11 @@ export default class MenuScene extends Phaser.Scene {
     this._button('copy', cx, 320, 'Скопировать ссылку', '',
       () => {
         copyText(link);
-        this.items.push(this.add.text(cx, 366, 'скопировано', font(13, 700, '#8ef0a0'))
-          .setOrigin(0.5, 0));
+        // Подтверждение одно на все нажатия: иначе оно множится стопкой
+        if (this.copiedLabel) return;
+        this.copiedLabel = this.add.text(cx, 366, 'скопировано', font(13, 700, '#8ef0a0'))
+          .setOrigin(0.5, 0);
+        this.items.push(this.copiedLabel);
       }, { w: 340, h: 58 });
     this._button('enter', cx, 404, 'Войти в комнату', 'ждать соперника',
       () => this.startOnline(room), { variant: 'primary', w: 340, h: 62 });
