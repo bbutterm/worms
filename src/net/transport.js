@@ -53,15 +53,32 @@ export class ChannelTransport {
  * SQL не выполняется, миграций нет. Ключ нужен публичный (anon).
  */
 export class SupabaseTransport {
-  constructor({ url, anonKey, createClient }) {
+  constructor({ url, keys, createClient }) {
     this.id = randomId();
     this.url = url;
-    this.anonKey = anonKey;
+    this.keys = keys.filter(Boolean);
     this.createClient = createClient;
   }
 
   async connect(room, onMessage) {
-    const client = this.createClient(this.url, this.anonKey, {
+    // Ключей может быть два: новый publishable и старый anon. Проекты
+    // разного возраста принимают на Realtime разные, поэтому пробуем по
+    // очереди — иначе «онлайн не работает» без единого внятного признака.
+    let last = null;
+    for (const key of this.keys) {
+      try {
+        await this._connectWith(key, room, onMessage);
+        return this;
+      } catch (e) {
+        last = e;
+        this.close();
+      }
+    }
+    throw last ?? new Error('нет ключей для Realtime');
+  }
+
+  async _connectWith(key, room, onMessage) {
+    const client = this.createClient(this.url, key, {
       realtime: { params: { eventsPerSecond: 20 } },
     });
     this.client = client;
@@ -83,7 +100,6 @@ export class SupabaseTransport {
         }
       });
     });
-    return this;
   }
 
   send(msg) {
@@ -91,9 +107,13 @@ export class SupabaseTransport {
   }
 
   close() {
+    // Без этого клиент продолжает долбиться в сокет вечно, даже когда мы
+    // уже сдались и играем локально
     this.channel?.unsubscribe();
     this.client?.removeAllChannels();
+    this.client?.realtime?.disconnect();
     this.channel = null;
+    this.client = null;
   }
 }
 

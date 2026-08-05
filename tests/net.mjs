@@ -120,7 +120,9 @@ const bothNextTurn = (n) => Promise.all(pages.map((p) => p.waitForFunction(
 )));
 
 let a = await info(A), b = await info(B);
-check('обе стороны считают кадры полноценно', a.fps > 20 && b.fps > 20,
+// Порог низкий намеренно: важно не «быстро», а «не придушено». Фоновая
+// вкладка давала 1-2 кадра в секунду — вот что этот порог ловит.
+check('ни одна сторона не придушена по кадрам', a.fps >= 8 && b.fps >= 8,
   `${a.fps} / ${b.fps} fps`);
 check('оба клиента спарились', a.myTeam !== null && b.myTeam !== null,
   `${a.myTeam} / ${b.myTeam}`);

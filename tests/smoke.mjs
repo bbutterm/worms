@@ -12,6 +12,10 @@ import { chromium } from 'playwright';
 
 const URL = process.argv[2] || 'http://127.0.0.1:5173';
 const BIOME = 'forest';
+// Карта закреплена зерном: граната скачет, и на случайном острове она
+// иногда укатывалась в воду — проверка воронки мигала от запуска к запуску.
+// Пофаззить карту всё ещё можно: SEED=random npm test (или своё число).
+const SEED = process.env.SEED || '777';
 
 const failures = [];
 const errors = [];
@@ -43,7 +47,8 @@ page.on('console', (m) => {
   }
 });
 
-await page.goto(`${URL}/?biome=${BIOME}`, { waitUntil: 'domcontentloaded' });
+const seedParam = SEED === 'random' ? '' : `&seed=${SEED}`;
+await page.goto(`${URL}/?biome=${BIOME}${seedParam}`, { waitUntil: 'domcontentloaded' });
 
 const ready = () => page.waitForFunction(
   () => window.__WORMS__?.scene.isActive('Game')

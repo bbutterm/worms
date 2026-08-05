@@ -104,6 +104,9 @@ export default class GameScene extends Phaser.Scene {
       console.warn('[net] не удалось подключиться', e);
       this.fx.banner('сеть недоступна, играем локально', '#ff9a9a', 2600);
       this._netStatus('нет связи — локальная игра', '#ff9a9a');
+      // Сессию гасим целиком: иначе клиент Realtime продолжит ломиться
+      // в сокет до конца партии, которую мы уже играем локально
+      this.net?.destroy();
       this.net = null;
       this.registry.set('net', null);
     });
@@ -120,8 +123,10 @@ export default class GameScene extends Phaser.Scene {
     if (globalThis.WORMS_TRANSPORT) return globalThis.WORMS_TRANSPORT();
     const cfg = supabaseConfig();
     if (!cfg) return new ChannelTransport();
-    const createClient = await loadCreateClient(cfg.esm);
-    return new SupabaseTransport({ url: cfg.url, anonKey: cfg.anonKey, createClient });
+    const createClient = await loadCreateClient(cfg.lib);
+    return new SupabaseTransport({
+      url: cfg.url, keys: [cfg.anonKey, cfg.legacyKey], createClient,
+    });
   }
 
   _netStatus(text, color) {

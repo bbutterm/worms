@@ -37,7 +37,7 @@ console.log(`статика на http://127.0.0.1:${PORT}\n`);
 // Наборов два: обычная игра и сетевая партия из двух вкладок.
 // Можно взять один: node tests/run.mjs net
 const only = process.argv[2];
-const suites = ['smoke', 'net'].filter((s) => !only || s === only);
+const suites = ['smoke', 'net', 'supabase'].filter((s) => !only || s === only);
 
 let code = 0;
 for (const suite of suites) {
