@@ -1,5 +1,6 @@
 import { CFG, DEPTH, TEAM_COLORS } from '../config.js';
 import { has, meta } from '../core/assets.js';
+import { font } from '../ui/theme.js';
 
 /**
  * Боец. Прямоугольник CFG.WORM_W x CFG.WORM_H.
@@ -59,10 +60,8 @@ export class Worm {
 
     // Червяки в оригинале одинаковые, поэтому команду показываем цветом
     // числа здоровья и полоской под ним — как в самой игре.
-    this.label = s.add.text(this.x, this.y - CFG.WORM_H - 20, `${this.health}`, {
-      fontFamily: 'monospace', fontSize: '14px', color: hexColor(color),
-      stroke: '#101420', strokeThickness: 4,
-    }).setOrigin(0.5, 0.5).setDepth(DEPTH.WORM + 2);
+    this.label = s.add.text(this.x, this.y - CFG.WORM_H - 20, `${this.health}`,
+      font(15, 800, hexColor(color))).setOrigin(0.5, 0.5).setDepth(DEPTH.WORM + 2);
     s.rig.world(this.label);
 
     this.barBg = s.add.rectangle(this.x, this.y - CFG.WORM_H - 6, HP_BAR_W + 2, 5, 0x101420, 0.85)
@@ -313,6 +312,11 @@ export class Worm {
     this.health = Math.max(0, this.health - amount);
     this.scene.fx.damageNumber(this.x, this.centerY - 10, amount);
     if (this.health <= 0) this.kill(cause);
+  }
+
+  heal(amount) {
+    if (!this.alive) return;
+    this.health = Math.min(CFG.MAX_HEALTH, this.health + amount);
   }
 
   kill(cause = '') {

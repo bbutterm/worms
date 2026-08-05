@@ -112,6 +112,17 @@ def build_markers():
     box = union_box(grave[:1])
     save(grave[0].crop(box), 'grave.png')
 
+    # Ящики: оружейный, аптечка и «утилита». Кадр один — они не анимированы,
+    # но в ленте лежат вместе с вариантами, поэтому берём первый.
+    for key, src in [('crate_weapon', 'wcrate0.png'), ('crate_health', 'mcrate0.png'),
+                     ('crate_util', 'ucrate0.png')]:
+        fr = frames(gen('Misc', src), 60, 60)
+        save(fr[0].crop(union_box(fr[:1])), f'{key}.png')
+
+    # Парашют — он же кадр «ящик спускается»
+    chute = frames(gen('Misc', 'wcratev.png'), 60, 60)
+    save(chute[0].crop(union_box(chute[:1])), 'crate_chute.png')
+
     # Прицел: берём один кадр, вращать его не нужно
     for key, src in [('crosshair_0', 'crshairr.png'), ('crosshair_1', 'crshairb.png')]:
         fr = frames(gen('Misc', src), 60, 60)

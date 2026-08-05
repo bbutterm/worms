@@ -1,0 +1,98 @@
+import { CFG, DEPTH } from '../config.js';
+import { has } from '../core/assets.js';
+
+/**
+ * Ящик, сброшенный на карту.
+ *
+ * Спускается на парашюте с постоянной скоростью, при касании земли
+ * парашют пропадает. Подбирается бойцом, который наступил на него.
+ * Взрыв рядом ящик уничтожает — иначе он вечно висел бы над воронкой.
+ *
+ * Типы:
+ *   weapon — даёт патроны случайного оружия с конечным запасом;
+ *   health — лечит.
+ */
+export class Crate {
+  constructor(scene, x, kind) {
+    this.scene = scene;
+    this.terrain = scene.terrain;
+    this.kind = kind;
+    this.x = x;
+    this.y = -40;
+    this.vy = CFG.CRATE_FALL_SPEED;
+    this.alive = true;
+    this.landed = false;
+
+    this.w = CFG.CRATE_W;
+    this.h = CFG.CRATE_H;
+
+    const key = kind === 'health' ? 'crate_health' : 'crate_weapon';
+    const s = scene;
+    if (has(s, key)) {
+      this.view = s.add.image(x, this.y, key);
+    } else {
+      this.view = s.add.rectangle(x, this.y, this.w, this.h,
+        kind === 'health' ? 0xff6b6b : 0xc79a52);
+      this.view.setStrokeStyle(2, 0x1a1a24, 0.8);
+    }
+    this.view.setOrigin(0.5, 1);
+    s.rig.world(this.view.setDepth(DEPTH.WORM - 1));
+
+    if (has(s, 'crate_chute')) {
+      this.chute = s.rig.world(s.add.image(x, this.y - this.h, 'crate_chute')
+        .setOrigin(0.5, 1).setDepth(DEPTH.WORM - 2));
+    }
+  }
+
+  /** Есть ли твердь под нижней гранью. */
+  _supported(cy) {
+    return this.terrain.solidInRow(this.x - this.w / 2 + 2, this.x + this.w / 2 - 2, cy + 1);
+  }
+
+  update(dt) {
+    if (!this.alive) return;
+
+    if (!this.landed) {
+      // Спуск равномерный: ящик на парашюте, свободного падения нет
+      const step = this.vy * dt;
+      const ray = this.terrain.raycast(this.x, this.y, this.x, this.y + step);
+      if (ray.hit) {
+        this.y = ray.freeY;
+        this._land();
+      } else {
+        this.y += step;
+        if (this.y > CFG.DROWN_Y) { this.destroy(); return; }
+      }
+    } else if (!this._supported(this.y)) {
+      // Землю под ящиком снесло — падает дальше
+      this.landed = true;
+      const ray = this.terrain.raycast(this.x, this.y, this.x, this.y + this.vy * dt);
+      if (ray.hit) this.y = ray.freeY;
+      else {
+        this.y += this.vy * dt;
+        if (this.y > CFG.DROWN_Y) { this.destroy(); return; }
+      }
+    }
+
+    this.view.setPosition(Math.round(this.x), Math.round(this.y));
+    if (this.chute) this.chute.setPosition(Math.round(this.x), Math.round(this.y) - this.h);
+  }
+
+  _land() {
+    this.landed = true;
+    if (this.chute) { this.chute.destroy(); this.chute = null; }
+  }
+
+  /** Пересекается ли с прямоугольником бойца. */
+  overlapsWorm(w) {
+    return w.right >= this.x - this.w / 2 && w.left <= this.x + this.w / 2
+      && w.y >= this.y - this.h && w.top <= this.y;
+  }
+
+  destroy() {
+    if (!this.alive) return;
+    this.alive = false;
+    this.view.destroy();
+    if (this.chute) this.chute.destroy();
+  }
+}

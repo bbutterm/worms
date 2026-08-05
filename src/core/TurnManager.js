@@ -21,14 +21,43 @@ export class TurnManager {
     this.weaponIndex = 0;
     this.teamCursor = new Array(CFG.TEAMS).fill(0);
     this.turnNumber = 0;
+    // Патроны общие на команду, как в оригинале
+    this.ammo = Array.from({ length: CFG.TEAMS }, () =>
+      WEAPONS.map((w) => w.startAmmo));
+  }
+
+  /** Сколько осталось у текущей команды. Infinity — безлимитное оружие. */
+  ammoOf(index, team = this.currentTeam) {
+    const n = this.ammo[team][index];
+    return n === null ? Infinity : n;
+  }
+
+  addAmmo(index, count, team = this.currentTeam) {
+    if (this.ammo[team][index] === null) return;
+    this.ammo[team][index] += count;
+  }
+
+  /** Индекс случайного оружия с конечным запасом — для ящика. */
+  randomCrateWeapon(rng) {
+    const limited = WEAPONS.map((w, i) => (w.startAmmo === null ? -1 : i))
+      .filter((i) => i >= 0);
+    return limited[rng.int(0, limited.length - 1)];
   }
 
   get weapon() { return WEAPONS[this.weaponIndex]; }
 
   setWeaponIndex(i) {
     if (i < 0 || i >= WEAPONS.length) return;
+    if (this.ammoOf(i) <= 0) return;      // пустое оружие не выбирается
     this.weaponIndex = i;
     this.scene.hud.setWeaponIndex(i);
+  }
+
+  /** Списать выстрел и, если запас кончился, вернуться к базуке. */
+  spendAmmo() {
+    const i = this.weaponIndex;
+    if (this.ammo[this.currentTeam][i] === null) return;
+    this.ammo[this.currentTeam][i] = Math.max(0, this.ammo[this.currentTeam][i] - 1);
   }
 
   /** Первый ход. */
@@ -66,6 +95,15 @@ export class TurnManager {
     this.timeLeft = CFG.TURN_TIME;
     this.state = STATE.AIM;
 
+    // Оружие могло кончиться у этой команды — откатываемся на доступное
+    if (this.ammoOf(this.weaponIndex) <= 0) {
+      const ok = WEAPONS.findIndex((w, i) => this.ammoOf(i) > 0);
+      this.weaponIndex = ok >= 0 ? ok : 0;
+    }
+    this.scene.hud.setWeaponIndex(this.weaponIndex);
+
+    this.scene.maybeDropCrate();
+
     // Ветер случайный в начале каждого хода
     this.scene.setWind(this.scene.rng.range(CFG.WIND_MIN, CFG.WIND_MAX));
     this.scene.resetAim();
@@ -95,6 +133,7 @@ export class TurnManager {
 
   /** Вызывается сценой сразу после выстрела: ход уже не вернуть. */
   onFired() {
+    this.spendAmmo();
     this.state = STATE.FLYING;
     this.flyTimer = 0;
     this.activeWorm?.setActiveMarker(false);

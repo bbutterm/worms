@@ -89,6 +89,26 @@ const px = (x, y) => [
 check('логическая ширина подогнана под экран', view.w >= 1280 && view.h === 720,
   `${view.w}x${view.h}`);
 
+// Кнопки не должны наезжать друг на друга: раскладка считается от размера
+// экрана, и на нестандартных пропорциях это легко проглядеть.
+const overlaps = await page.evaluate(() => {
+  const r = window.__WORMS__.scene.getScene('Game').hud.uiRects;
+  const bad = [];
+  for (let i = 0; i < r.length; i++) {
+    for (let j = i + 1; j < r.length; j++) {
+      const a = r[i], b = r[j];
+      if (a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h) {
+        bad.push(`${Math.round(a.x)},${Math.round(a.y)} × ${Math.round(b.x)},${Math.round(b.y)}`);
+      }
+    }
+  }
+  return bad;
+});
+check('кнопки интерфейса не пересекаются', overlaps.length === 0, overlaps.slice(0, 3).join(' | '));
+
+// Подсказка показывается на старте и перекрывает поле
+await page.evaluate(() => window.__WORMS__.scene.getScene('Game').hud.setHelp(false));
+
 const start = await state();
 check('игра стартовала', start.alive === 4 && start.phase === 'aim');
 check('прицел на 45°', start.angle === 45, `${start.angle}°`);
@@ -265,6 +285,58 @@ await page.waitForTimeout(120);
 await page.mouse.up();
 await page.waitForTimeout(400);
 check('свайп по бойцу стреляет', (await state()).phase === 'flying');
+
+// --- патроны ---
+await waitAim();
+const ammo = await page.evaluate(() => {
+  const s = window.__WORMS__.scene.getScene('Game');
+  const inf = s.turn.ammoOf(0);
+  const before = s.turn.ammoOf(1);
+  s.turn.setWeaponIndex(1);
+  s.turn.spendAmmo();
+  const after = s.turn.ammoOf(1);
+  // выбрать пустое оружие нельзя
+  s.turn.ammo[s.turn.currentTeam][2] = 0;
+  s.turn.setWeaponIndex(2);
+  return { inf, before, after, picked: s.turn.weaponIndex };
+});
+check('у базуки патроны бесконечны', ammo.inf === null || ammo.inf > 1e9);
+check('выстрел тратит патрон', ammo.after === ammo.before - 1,
+  `${ammo.before} → ${ammo.after}`);
+check('пустое оружие не выбирается', ammo.picked !== 2);
+
+// --- ящик: падает, приземляется, подбирается ---
+const crate = await page.evaluate(() => new Promise((res) => {
+  const s = window.__WORMS__.scene.getScene('Game');
+  s.crates.forEach((c) => c.destroy());
+  s.crates.length = 0;
+  for (let i = 0; i < 80 && s.crates.length === 0; i++) s.maybeDropCrate();
+  if (!s.crates.length) { res({ spawned: false }); return; }
+
+  const c = s.crates[0];
+  c.kind = 'health';
+  const startY = c.y;
+  // Досаживаем ящик на землю: в headless кадры редкие, ждать долго
+  const ground = s.terrain.surfaceYAt(c.x, 0);
+  c.y = ground - 1;
+  c._land();
+
+  const w = s.turn.activeWorm;
+  w.health = 40;
+  w.x = c.x;
+  w.y = ground - 1;
+  setTimeout(() => {
+    res({
+      spawned: true, startY: Math.round(startY), landed: c.landed,
+      collected: !c.alive, health: w.health, crates: s.crates.length,
+    });
+  }, 600);
+}));
+check('ящик появляется и спускается сверху', crate.spawned && crate.startY < 60,
+  `старт y=${crate.startY}`);
+check('ящик приземляется', crate.landed === true);
+check('боец подбирает аптечку', crate.collected && crate.health > 40,
+  `здоровье ${crate.health}`);
 
 // --- победа и рестарт ---
 await waitAim();

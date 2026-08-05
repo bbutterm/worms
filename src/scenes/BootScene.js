@@ -14,7 +14,8 @@ export default class BootScene extends Phaser.Scene {
     const W = this.scale.width, H = this.scale.height;
     this.add.rectangle(0, 0, W, H, 0x0b1021).setOrigin(0, 0);
     const label = this.add.text(W / 2, H / 2, 'Загрузка…', {
-      fontFamily: 'monospace', fontSize: '20px', color: '#93a4bd',
+      fontFamily: '"Worms UI", system-ui, sans-serif', fontSize: '22px',
+      fontStyle: '800', color: '#93a4bd',
     }).setOrigin(0.5);
 
     this.load.on('loaderror', (file) => missing.add(file.key));

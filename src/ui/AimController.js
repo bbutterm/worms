@@ -1,5 +1,6 @@
 import { CFG, DEPTH } from '../config.js';
 import { has } from '../core/assets.js';
+import { font } from './theme.js';
 
 /**
  * Прицеливание и протяжка камеры.
@@ -27,10 +28,8 @@ export class AimController {
     this.camStart = 0;
 
     this.gfx = scene.rig.world(scene.add.graphics().setDepth(DEPTH.AIM));
-    this.info = scene.add.text(0, 0, '', {
-      fontFamily: 'monospace', fontSize: '14px', color: '#ffffff',
-      stroke: '#0d1018', strokeThickness: 4,
-    }).setOrigin(0.5, 1).setDepth(DEPTH.AIM);
+    this.info = scene.add.text(0, 0, '', font(15, 800))
+      .setOrigin(0.5, 1).setDepth(DEPTH.AIM);
     scene.rig.world(this.info);
     this.info.setVisible(false);
 

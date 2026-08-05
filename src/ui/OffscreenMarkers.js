@@ -1,4 +1,5 @@
 import { CFG, DEPTH, TEAM_COLORS } from '../config.js';
+import { font } from './theme.js';
 
 /**
  * Указатели на бойцов, оказавшихся за краем экрана.
@@ -72,10 +73,8 @@ export class OffscreenMarkers {
 
   _label(i, x, y, text, color, originX) {
     if (!this.labels[i]) {
-      this.labels[i] = this.scene.add.text(0, 0, '', {
-        fontFamily: 'monospace', fontSize: '12px',
-        stroke: '#0d1018', strokeThickness: 3,
-      }).setScrollFactor(0).setDepth(DEPTH.HUD - 1);
+      this.labels[i] = this.scene.add.text(0, 0, '', font(13, 800))
+        .setScrollFactor(0).setDepth(DEPTH.HUD - 1);
       this.scene.rig.ui(this.labels[i]);
     }
     const l = this.labels[i];

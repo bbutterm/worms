@@ -1,5 +1,6 @@
 import { CFG, DEPTH } from '../config.js';
 import { has } from '../core/assets.js';
+import { font, UI } from './theme.js';
 
 /** Визуальные эффекты: взрывы, брызги, всплывающие числа урона. */
 export class Fx {
@@ -92,10 +93,8 @@ export class Fx {
 
   damageNumber(x, y, amount) {
     const s = this.scene;
-    const t = s.add.text(x, y, `-${amount}`, {
-      fontFamily: 'monospace', fontSize: '18px', color: '#ff8a8a',
-      stroke: '#20141a', strokeThickness: 4,
-    }).setOrigin(0.5).setDepth(DEPTH.FX + 1);
+    const t = s.add.text(x, y, `-${amount}`, font(19, 800, '#ff9a9a'))
+      .setOrigin(0.5).setDepth(DEPTH.FX + 1);
     s.rig.world(t);
     s.tweens.add({
       targets: t, y: y - 46, alpha: 0, duration: 900,
@@ -103,12 +102,22 @@ export class Fx {
     });
   }
 
+  /** Всплывающая подпись о подобранном ящике. */
+  pickup(x, y, text, color = '#ffd166') {
+    const s = this.scene;
+    const t = s.rig.world(s.add.text(x, y - 18, text, font(16, 800, color))
+      .setOrigin(0.5).setDepth(DEPTH.FX + 1));
+    s.tweens.add({
+      targets: t, y: y - 62, alpha: 0, duration: 1100,
+      ease: 'Quad.easeOut', onComplete: () => t.destroy(),
+    });
+  }
+
   banner(text, color = '#ffffff', duration = 1600) {
     const s = this.scene;
-    const t = s.add.text(CFG.VIEW_W / 2, 190, text, {
-      fontFamily: 'monospace', fontSize: '34px', color,
-      stroke: '#0d1018', strokeThickness: 7, align: 'center',
-    }).setOrigin(0.5).setScrollFactor(0).setDepth(DEPTH.HUD + 5);
+    const t = s.add.text(CFG.VIEW_W / 2, 168, text, font(34, 800, color))
+      .setOrigin(0.5).setScrollFactor(0).setDepth(DEPTH.HUD + 5);
+    t.setAlign('center');
     s.rig.ui(t);
     t.setScale(0.7);
     s.tweens.add({ targets: t, scale: 1, duration: 220, ease: 'Back.easeOut' });

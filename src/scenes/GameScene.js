@@ -5,9 +5,12 @@ import { Terrain } from '../core/Terrain.js';
 import { TurnManager, STATE } from '../core/TurnManager.js';
 import { has, meta } from '../core/assets.js';
 import { Worm } from '../entities/Worm.js';
+import { Crate } from '../entities/Crate.js';
 import { Hud } from '../ui/Hud.js';
 import { Fx } from '../ui/Fx.js';
 import { AimController } from '../ui/AimController.js';
+import { font, UI } from '../ui/theme.js';
+import { WEAPONS } from '../weapons/index.js';
 import { OffscreenMarkers } from '../ui/OffscreenMarkers.js';
 import { CameraRig } from '../ui/CameraRig.js';
 
@@ -19,6 +22,7 @@ export default class GameScene extends Phaser.Scene {
     this.wind = 0;
     this.worms = [];
     this.projectiles = [];
+    this.crates = [];
     this.followTarget = null;
     this.moveInput = {
       left: false, right: false, jumpQueued: false,
@@ -246,6 +250,12 @@ export default class GameScene extends Phaser.Scene {
 
     for (const w of this.worms) w.update(dt);
 
+    for (const c of this.crates) c.update(dt);
+    this._collectCrates();
+    if (this.crates.some((c) => !c.alive)) {
+      this.crates = this.crates.filter((c) => c.alive);
+    }
+
     for (const p of this.projectiles) p.update(dt);
     if (this.projectiles.some((p) => !p.alive)) {
       this.projectiles = this.projectiles.filter((p) => p.alive);
@@ -381,6 +391,46 @@ export default class GameScene extends Phaser.Scene {
     this.rig.frame(center, worm.centerY);
   }
 
+  /** Сброс ящика в начале хода. */
+  maybeDropCrate() {
+    if (this.crates.length >= CFG.CRATE_MAX) return;
+    if (this.rng() > CFG.CRATE_CHANCE) return;
+
+    const spots = [];
+    for (let x = 200; x < CFG.WORLD_W - 200; x += 24) {
+      if (this.terrain.isSpawnable(x)) spots.push(x);
+    }
+    if (!spots.length) return;
+
+    const kind = this.rng() < CFG.CRATE_HEALTH_CHANCE ? 'health' : 'weapon';
+    this.crates.push(new Crate(this, this.rng.pick(spots), kind));
+  }
+
+  /** Боец, наступивший на ящик, забирает его. */
+  _collectCrates() {
+    for (const c of this.crates) {
+      if (!c.alive) continue;
+      for (const w of this.worms) {
+        if (!w.alive || !c.overlapsWorm(w)) continue;
+        this._takeCrate(c, w);
+        break;
+      }
+    }
+  }
+
+  _takeCrate(crate, worm) {
+    crate.destroy();
+    if (crate.kind === 'health') {
+      worm.heal(CFG.CRATE_HEALTH);
+      this.fx.pickup(crate.x, crate.y, `+${CFG.CRATE_HEALTH} здоровья`, '#7de07d');
+    } else {
+      const i = this.turn.randomCrateWeapon(this.rng);
+      const w = WEAPONS[i];
+      this.turn.addAmmo(i, w.crateAmmo, worm.team);
+      this.fx.pickup(crate.x, crate.y, `${w.name} +${w.crateAmmo}`, '#ffd166');
+    }
+  }
+
   // -------------------------------------------------------------- геймплей
 
   canPlayerAct() {
@@ -424,6 +474,10 @@ export default class GameScene extends Phaser.Scene {
     this.terrain.destroyCircle(x, y, cfg.radius);
     this.fx.explosion(x, y, cfg.radius);
     this.rig.shake(220, cfg.shake ?? 0.006);
+
+    for (const c of this.crates) {
+      if (c.alive && Math.hypot(c.x - x, c.y - c.h / 2 - y) <= cfg.damageRadius) c.destroy();
+    }
 
     for (const w of this.worms) {
       if (!w.alive) continue;
@@ -475,17 +529,13 @@ export default class GameScene extends Phaser.Scene {
 
     const shade = this.rig.ui(this.add.rectangle(0, 0, CFG.VIEW_W, CFG.VIEW_H, 0x070b14, 0.55)
       .setOrigin(0, 0).setScrollFactor(0).setDepth(DEPTH.HUD + 10));
-    const title = this.add.text(CFG.VIEW_W / 2, CFG.VIEW_H / 2 - 26, text, {
-      fontFamily: 'monospace', fontSize: '44px',
-      color: `#${color.toString(16).padStart(6, '0')}`,
-      stroke: '#0d1018', strokeThickness: 8,
-    }).setOrigin(0.5).setScrollFactor(0).setDepth(DEPTH.HUD + 11);
+    const title = this.add.text(CFG.VIEW_W / 2, CFG.VIEW_H / 2 - 28, text,
+      font(46, 800, `#${color.toString(16).padStart(6, '0')}`))
+      .setOrigin(0.5).setScrollFactor(0).setDepth(DEPTH.HUD + 11);
     this.rig.ui(title);
-    const sub = this.add.text(CFG.VIEW_W / 2, CFG.VIEW_H / 2 + 30,
-      'тап или R — новая карта', {
-        fontFamily: 'monospace', fontSize: '18px', color: '#c3cee0',
-        stroke: '#0d1018', strokeThickness: 5,
-      }).setOrigin(0.5).setScrollFactor(0).setDepth(DEPTH.HUD + 11);
+    const sub = this.add.text(CFG.VIEW_W / 2, CFG.VIEW_H / 2 + 32,
+      'тап или R — новая карта', font(18, 700, UI.textDim))
+      .setOrigin(0.5).setScrollFactor(0).setDepth(DEPTH.HUD + 11);
     this.rig.ui(sub);
 
     this.gameOverUi = [shade, title, sub];
@@ -497,6 +547,7 @@ export default class GameScene extends Phaser.Scene {
 
   _shutdown() {
     this.aim?.destroy();
+    this.crates = [];
     this.rig?.destroy();
     this.offscreen?.destroy();
     this.projectiles = [];

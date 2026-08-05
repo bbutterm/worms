@@ -15,6 +15,9 @@ export class Weapon {
     this.color = cfg.color ?? 0xffffff;
     this.spriteKey = cfg.spriteKey ?? null;
     this.iconKey = cfg.iconKey ?? null;
+    // null = бесконечно (базука), число = стартовый запас на команду
+    this.startAmmo = cfg.startAmmo ?? null;
+    this.crateAmmo = cfg.crateAmmo ?? 2;   // сколько даёт ящик
     // Кадры спрайтшита — предрассчитанные повороты, а не анимация
     this.rotational = cfg.rotational ?? false;
 

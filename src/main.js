@@ -11,6 +11,23 @@ initTelegram();
 // геометрия мира, физика и генерация ландшафта не меняются вовсе.
 fitViewToScreen(window.innerWidth, window.innerHeight);
 
+// Шрифт должен приехать ДО первого текста: Phaser меряет и кеширует
+// метрики при создании, и текст, созданный на запасном шрифте, так и
+// останется криво расположенным.
+await loadUiFont();
+
+async function loadUiFont() {
+  if (!document.fonts) return;
+  try {
+    await Promise.all([
+      document.fonts.load('800 32px "Worms UI"', 'Ход1'),
+      document.fonts.load('700 32px "Worms UI"', 'Ход1'),
+    ]);
+  } catch (e) {
+    console.warn('[ui] шрифт не загрузился, будет запасной', e);
+  }
+}
+
 /**
  * Ни Arcade, ни Matter, ни Impact — блок `physics` в конфиге отсутствует
  * намеренно. Вся физика в src/entities и src/core написана вручную.

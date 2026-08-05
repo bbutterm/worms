@@ -29,6 +29,7 @@ export const WEAPONS = [
     spriteKey: 'proj_bazooka',
     iconKey: 'icon_bazooka',
     rotational: true,
+    startAmmo: null,                       // базука всегда есть
     projectile: { radius: 5, windScale: 1, gravityScale: 1 },
     explosion: { radius: 40, damageRadius: 72, damage: 45, knockback: 300, shake: 0.006 },
   }),
@@ -40,6 +41,7 @@ export const WEAPONS = [
     color: 0x8ee06a,
     spriteKey: 'proj_grenade',
     iconKey: 'icon_grenade',
+    startAmmo: 3,
     projectile: {
       radius: 5, windScale: 0.35, bounciness: 0.45, friction: 0.72, fuse: 3,
     },
@@ -53,6 +55,7 @@ export const WEAPONS = [
     color: 0xff8ad4,
     spriteKey: 'proj_cluster',
     iconKey: 'icon_cluster',
+    startAmmo: 2,
     projectile: { radius: 6, windScale: 0.8 },
     explosion: { radius: 26, damageRadius: 46, damage: 22, knockback: 180, shake: 0.004 },
     clusterCount: 5,
@@ -67,6 +70,7 @@ export const WEAPONS = [
     color: 0xc0c8d8,
     spriteKey: 'proj_mole',
     iconKey: 'icon_mole',
+    startAmmo: 1,
     projectile: {
       radius: 6, windScale: 0.15, gravityScale: 1.15,
       digRadius: 9, digTime: 0.55,

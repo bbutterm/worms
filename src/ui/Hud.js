@@ -1,195 +1,234 @@
 import { CFG, DEPTH, TEAM_COLORS, TEAM_NAMES } from '../config.js';
 import { WEAPONS } from '../weapons/index.js';
 import { has as hasAsset } from '../core/assets.js';
+import { UI, font, ensureButton, ensureRoundButton, ensureIcon } from './theme.js';
+
+const TOP_H = 62;
 
 /**
- * Весь интерфейс: таймер хода, ветер, здоровье команд, выбор оружия, тач-кнопки.
- * Все элементы закреплены за камерой через setScrollFactor(0) —
- * без Container, чтобы хит-тест интерактивных кнопок был предсказуемым.
+ * Интерфейс: ход, таймер, здоровье команд, ветер, выбор оружия и тач-кнопки.
+ *
+ * Всё живёт в интерфейсной камере (rig.ui): не масштабируется зумом и не
+ * трясётся при взрывах. Container не используем — хит-тест интерактивных
+ * объектов внутри контейнера ведёт себя непредсказуемо.
+ *
+ * Кнопки — картинки из theme.js: скруглённые плашки с фаской и тенью.
+ * Раньше это были плоские прямоугольники с юникодными значками, и всё
+ * вместе выглядело как отладочный оверлей поверх нарисованной игры.
  */
 export class Hud {
   constructor(scene) {
     this.scene = scene;
     this.uiRects = [];
     this.weaponButtons = [];
-    this.moveButtons = [];
+    this.holdButtons = [];
 
     const W = CFG.VIEW_W;
-    // Всё в интерфейсную камеру: она не масштабируется зумом и не трясётся
-    const fix = (o, d = DEPTH.HUD) => scene.rig.ui(o.setScrollFactor(0).setDepth(d));
+    const H = CFG.VIEW_H;
+    this.fix = (o, d = DEPTH.HUD) => scene.rig.ui(o.setScrollFactor(0).setDepth(d));
 
-    // --- верхняя панель ---
-    // Раскладка по колонкам, чтобы блоки гарантированно не наезжали:
-    //   16..300 ход · 320..430 таймер · 450..820 здоровье команд · 1000..1264 ветер
-    fix(scene.add.rectangle(0, 0, W, 54, 0x0d1220, 0.78).setOrigin(0, 0));
-
-    this.turnText = fix(scene.add.text(16, 8, '', {
-      fontFamily: 'monospace', fontSize: '16px', color: '#ffffff',
-    }));
-    this.biomeText = fix(scene.add.text(16, 30, '', {
-      fontFamily: 'monospace', fontSize: '12px', color: '#93a4bd',
-    }));
-
-    // Таймер
-    const tx = 375;
-    this.timerText = fix(scene.add.text(tx, 4, '30', {
-      fontFamily: 'monospace', fontSize: '26px', color: '#ffffff',
-    }).setOrigin(0.5, 0));
-    fix(scene.add.rectangle(tx - 55, 44, 110, 5, 0x2b3550).setOrigin(0, 0.5));
-    this.timerBar = fix(scene.add.rectangle(tx - 55, 44, 110, 5, 0x6ee36e).setOrigin(0, 0.5));
-    this.timerBarWidth = 110;
-
-    // Ветер
-    fix(scene.add.text(W - 16, 4, 'ВЕТЕР', {
-      fontFamily: 'monospace', fontSize: '12px', color: '#93a4bd',
-    }).setOrigin(1, 0));
-    this.windText = fix(scene.add.text(W - 16, 20, '0', {
-      fontFamily: 'monospace', fontSize: '17px', color: '#ffffff',
-    }).setOrigin(1, 0));
-    this.windGfx = fix(scene.add.graphics());
-    this.windCx = W - 190;
-
-    // --- здоровье команд ---
-    this.teamBars = [];
-    for (let t = 0; t < CFG.TEAMS; t++) {
-      const x = 460 + t * 190;
-      fix(scene.add.text(x, 6, TEAM_NAMES[t], {
-        fontFamily: 'monospace', fontSize: '13px', color: '#cfd8e8',
-      }));
-      fix(scene.add.rectangle(x, 34, 170, 11, 0x2b3550).setOrigin(0, 0.5));
-      const bar = fix(scene.add.rectangle(x, 34, 170, 11, TEAM_COLORS[t]).setOrigin(0, 0.5));
-      const cnt = fix(scene.add.text(x + 170, 6, '', {
-        fontFamily: 'monospace', fontSize: '12px', color: '#93a4bd',
-      }).setOrigin(1, 0));
-      this.teamBars.push({ bar, cnt, max: CFG.MAX_HEALTH * CFG.WORMS_PER_TEAM, width: 170 });
-    }
-
-    // --- выбор оружия ---
-    const bw = 92, bh = 46, gap = 8;
-    const totalW = WEAPONS.length * bw + (WEAPONS.length - 1) * gap;
-    let bx = (W - totalW) / 2;
-    const by = CFG.VIEW_H - bh - 14;
-
-    for (let i = 0; i < WEAPONS.length; i++) {
-      const weapon = WEAPONS[i];
-      const rect = fix(scene.add.rectangle(bx, by, bw, bh, 0x121a2c, 0.9).setOrigin(0, 0));
-      rect.setStrokeStyle(2, 0x2f3d5c);
-      rect.setInteractive({ useHandCursor: true });
-      rect.on('pointerdown', () => scene.turn.setWeaponIndex(i));
-
-      // Иконка из оригинала, если она загрузилась; иначе текстовый символ
-      const icon = hasAsset(scene, weapon.iconKey)
-        ? fix(scene.add.image(bx + bw / 2, by + 16, weapon.iconKey)
-          .setOrigin(0.5), DEPTH.HUD + 1)
-        : fix(scene.add.text(bx + bw / 2, by + 7, weapon.icon, {
-          fontFamily: 'monospace', fontSize: '18px', color: '#ffffff',
-        }).setOrigin(0.5, 0), DEPTH.HUD + 1);
-      const name = fix(scene.add.text(bx + bw / 2, by + 29, weapon.name, {
-        fontFamily: 'monospace', fontSize: '11px', color: '#a9b6cd',
-      }).setOrigin(0.5, 0), DEPTH.HUD + 1);
-      fix(scene.add.text(bx + 5, by + 3, `${i + 1}`, {
-        fontFamily: 'monospace', fontSize: '10px', color: '#6b7a95',
-      }), DEPTH.HUD + 1);
-
-      this.weaponButtons.push({ rect, icon, name });
-      this.uiRects.push({ x: bx, y: by, w: bw, h: bh });
-      bx += bw + gap;
-    }
-
-    // --- левый блок: ходьба и прыжок ---
-    this._makeHoldButton(24, CFG.VIEW_H - 80, 64, 64, '◀', 'left');
-    this._makeHoldButton(96, CFG.VIEW_H - 80, 64, 64, '▶', 'right');
-    this._makeHoldButton(24, CFG.VIEW_H - 152, 64, 64, '⤒', 'jumpQueued');
-
-    // --- правый блок: угол и огонь ---
-    // Координаты справа считаются от края экрана: логическая ширина
-    // подгоняется под пропорции устройства и на телефоне заметно больше 1280.
-    const aimX = W - 228;
-    this._makeHoldButton(aimX, CFG.VIEW_H - 146, 60, 60, '▲', 'aimUp');
-    this._makeHoldButton(aimX, CFG.VIEW_H - 76, 60, 60, '▼', 'aimDown');
-    this._makeFireButton(W - 88, CFG.VIEW_H - 80, 54);
-
-    // Возврат камеры: без него, уведя её посмотреть на противника,
-    // игрок остаётся без прицела и без способа вернуться
-    this._makeTapButton(96, CFG.VIEW_H - 152, 64, 64, '⌖', () => scene.focusCamera());
-    this._makeTapButton(aimX, CFG.VIEW_H - 216, 60, 60, '⛶', () => scene.rig.toggleOverview());
-
-    // Полноэкранный режим есть не везде: в Safari на iPhone его нет вовсе,
-    // там помогает только «На экран Домой» или запуск внутри Telegram.
-    if (scene.scale.fullscreen.available) {
-      this._makeTapButton(24, CFG.VIEW_H - 224, 64, 64, '⤢', () => {
-        if (scene.scale.isFullscreen) scene.scale.stopFullscreen();
-        else scene.scale.startFullscreen();
-      });
-    }
-
-    this.hint = fix(scene.add.text(W / 2, CFG.VIEW_H - 72,
-      'держи ОГОНЬ — набор силы, отпусти — выстрел · ▲▼ угол\n'
-      + 'можно и свайпом по бойцу · тяни фон — камера', {
-        fontFamily: 'monospace', fontSize: '11px', color: '#c3cee0', align: 'center',
-        stroke: '#0d1018', strokeThickness: 3,
-      }).setOrigin(0.5, 1));
-
-    // Центры кнопок наружу: раскладка зависит от пропорций экрана, и
-    // тестам незачем повторять её вычисления у себя.
-    this.buttons = {
-      fire: { x: W - 88, y: CFG.VIEW_H - 80 },
-      aimUp: { x: aimX + 30, y: CFG.VIEW_H - 116 },
-      aimDown: { x: aimX + 30, y: CFG.VIEW_H - 46 },
-      overview: { x: aimX + 30, y: CFG.VIEW_H - 186 },
-      focus: { x: 128, y: CFG.VIEW_H - 120 },
-      left: { x: 56, y: CFG.VIEW_H - 48 },
-      right: { x: 128, y: CFG.VIEW_H - 48 },
-    };
+    this._buildTopBar(W);
+    this._buildWeapons(W, H);
+    this._buildControls(W, H);
+    this._buildHelp(W, H);
 
     scene.input.on('pointerup', this._releaseAll, this);
     scene.input.on('pointerupoutside', this._releaseAll, this);
   }
 
-  _makeHoldButton(x, y, w, h, glyph, action) {
+  // ------------------------------------------------------- верхняя панель
+
+  _buildTopBar(W) {
     const s = this.scene;
-    const rect = s.rig.ui(s.add.rectangle(x, y, w, h, 0x121a2c, 0.75).setOrigin(0, 0)
-      .setScrollFactor(0).setDepth(DEPTH.HUD));
-    rect.setStrokeStyle(2, 0x2f3d5c);
-    rect.setInteractive({ useHandCursor: true });
-    s.rig.ui(s.add.text(x + w / 2, y + h / 2, glyph, {
-      fontFamily: 'monospace', fontSize: '22px', color: '#cfd8e8',
-    }).setOrigin(0.5).setScrollFactor(0).setDepth(DEPTH.HUD + 1));
+    const key = 'ui-topbar';
+    if (!s.textures.exists(key)) {
+      const tex = s.textures.createCanvas(key, 8, TOP_H);
+      const ctx = tex.getContext();
+      const g = ctx.createLinearGradient(0, 0, 0, TOP_H);
+      g.addColorStop(0, 'rgba(16,19,26,0.94)');
+      g.addColorStop(1, 'rgba(16,19,26,0.72)');
+      ctx.fillStyle = g;
+      ctx.fillRect(0, 0, 8, TOP_H);
+      ctx.fillStyle = 'rgba(255,255,255,0.10)';
+      ctx.fillRect(0, TOP_H - 2, 8, 2);
+      tex.refresh();
+    }
+    this.fix(s.add.image(0, 0, key).setOrigin(0, 0).setDisplaySize(W, TOP_H));
 
-    rect.on('pointerdown', () => {
-      // jumpQueued — одноразовый флаг, его сцена сама сбрасывает за кадр
-      s.moveInput[action] = true;
-      rect.setFillStyle(0x1e2a45, 0.9);
-    });
-    const release = () => {
-      if (action !== 'jumpQueued') s.moveInput[action] = false;
-      rect.setFillStyle(0x121a2c, 0.75);
-    };
-    rect.on('pointerup', release);
-    rect.on('pointerout', release);
+    // Кто ходит: цветная метка команды + имя бойца
+    this.teamChip = this.fix(s.add.rectangle(16, 14, 6, 32, 0xffffff).setOrigin(0, 0));
+    this.turnText = this.fix(s.add.text(32, 10, '', font(19, 800)));
+    this.subText = this.fix(s.add.text(32, 35, '', font(12, 700, UI.textDim)));
 
-    this.moveButtons.push({ rect, release });
-    this.uiRects.push({ x, y, w, h });
+    // Таймер по центру — кольцо вокруг цифры
+    this.timerGfx = this.fix(s.add.graphics());
+    this.timerCx = Math.round(W / 2);
+    this.timerCy = Math.round(TOP_H / 2) - 1;
+    this.timerText = this.fix(s.add.text(this.timerCx, this.timerCy, '30',
+      font(21, 800)).setOrigin(0.5));
+
+    // Здоровье команд сходится к таймеру: слева красные, справа синие
+    this.teamBars = [];
+    const barW = 190, gap = 52;
+    for (let t = 0; t < CFG.TEAMS; t++) {
+      const right = t % 2 === 1;
+      const x = right ? this.timerCx + gap : this.timerCx - gap - barW;
+      this.fix(s.add.text(right ? x : x + barW, 8, TEAM_NAMES[t],
+        font(13, 800, hex(TEAM_COLORS[t]))).setOrigin(right ? 0 : 1, 0));
+      const cnt = this.fix(s.add.text(right ? x + barW : x, 8, '',
+        font(12, 700, UI.textDim)).setOrigin(right ? 1 : 0, 0));
+      this.fix(this._barImage(x, 36, barW, 12));
+      const bar = this.fix(s.add.rectangle(right ? x + 2 : x + barW - 2, 36,
+        barW - 4, 8, TEAM_COLORS[t]).setOrigin(right ? 0 : 1, 0.5), DEPTH.HUD + 1);
+      this.teamBars.push({ bar, cnt, width: barW - 4 });
+    }
+
+    this.fix(s.add.text(W - 16, 8, 'ВЕТЕР', font(11, 700, UI.textDim)).setOrigin(1, 0));
+    this.windText = this.fix(s.add.text(W - 16, 22, '0', font(17, 800)).setOrigin(1, 0));
+    this.windGfx = this.fix(s.add.graphics());
+    this.windCx = W - 150;
+    this.windCy = 38;
   }
 
-  /** Обычная кнопка: срабатывает по нажатию, удержание ничего не копит. */
-  _makeTapButton(x, y, w, h, glyph, onTap) {
+  _barImage(x, y, w, h) {
     const s = this.scene;
-    const rect = s.rig.ui(s.add.rectangle(x, y, w, h, 0x121a2c, 0.75).setOrigin(0, 0)
-      .setScrollFactor(0).setDepth(DEPTH.HUD));
-    rect.setStrokeStyle(2, 0x2f3d5c);
-    rect.setInteractive({ useHandCursor: true });
-    s.rig.ui(s.add.text(x + w / 2, y + h / 2, glyph, {
-      fontFamily: 'monospace', fontSize: '24px', color: '#cfd8e8',
-    }).setOrigin(0.5).setScrollFactor(0).setDepth(DEPTH.HUD + 1));
+    const key = `ui-bar-${w}x${h}`;
+    if (!s.textures.exists(key)) {
+      const tex = s.textures.createCanvas(key, w, h);
+      const ctx = tex.getContext();
+      ctx.fillStyle = UI.bar;
+      ctx.fillRect(0, 0, w, h);
+      ctx.strokeStyle = 'rgba(255,255,255,0.14)';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(0.5, 0.5, w - 1, h - 1);
+      tex.refresh();
+    }
+    return s.add.image(x, y, key).setOrigin(0, 0.5);
+  }
 
-    rect.on('pointerdown', () => { rect.setFillStyle(0x1e2a45, 0.9); onTap(); });
-    const release = () => rect.setFillStyle(0x121a2c, 0.75);
-    rect.on('pointerup', release);
-    rect.on('pointerout', release);
+  // --------------------------------------------------------------- оружие
 
-    this.moveButtons.push({ rect, release });
-    this.uiRects.push({ x, y, w, h });
+  _buildWeapons(W, H) {
+    const s = this.scene;
+    const bw = 88, bh = 54, gap = 10;
+    const total = WEAPONS.length * bw + (WEAPONS.length - 1) * gap;
+    let bx = Math.round((W - total) / 2);
+    const by = H - bh - 12;
+
+    ensureButton(s, 'ui-weapon', bw, bh, 'normal');
+    ensureButton(s, 'ui-weapon-on', bw, bh, 'active');
+
+    for (let i = 0; i < WEAPONS.length; i++) {
+      const weapon = WEAPONS[i];
+      const plate = this.fix(s.add.image(bx + bw / 2, by + bh / 2, 'ui-weapon'));
+      plate.setInteractive({ useHandCursor: true });
+      plate.on('pointerdown', () => { this._press(plate); s.turn.setWeaponIndex(i); });
+      plate.on('pointerup', () => this._unpress(plate));
+      plate.on('pointerout', () => this._unpress(plate));
+
+      const icon = hasAsset(s, weapon.iconKey)
+        ? this.fix(s.add.image(bx + bw / 2, by + 19, weapon.iconKey).setOrigin(0.5), DEPTH.HUD + 1)
+        : this.fix(s.add.text(bx + bw / 2, by + 8, weapon.icon, font(18, 800))
+          .setOrigin(0.5, 0), DEPTH.HUD + 1);
+      const name = this.fix(s.add.text(bx + bw / 2, by + 36, weapon.name,
+        font(11, 700, UI.textDim)).setOrigin(0.5, 0), DEPTH.HUD + 1);
+      this.fix(s.add.text(bx + 7, by + 3, `${i + 1}`,
+        font(10, 700, UI.textDim)).setOrigin(0, 0), DEPTH.HUD + 1);
+      const ammo = this.fix(s.add.text(bx + bw - 7, by + 3, '',
+        font(11, 800, UI.accent)).setOrigin(1, 0), DEPTH.HUD + 1);
+
+      this.weaponButtons.push({ plate, icon, name, ammo });
+      this.uiRects.push({ x: bx, y: by, w: bw, h: bh });
+      bx += bw + gap;
+    }
+  }
+
+  // --------------------------------------------------------------- кнопки
+
+  _buildControls(W, H) {
+    const s = this.scene;
+    const B = 62;         // сторона квадратной кнопки
+    const FR = 54;        // радиус «Огня»
+    const gap = 10;
+
+    // Слева: ходьба внизу, прыжок и возврат камеры над ними
+    const lx = 24, lx2 = lx + B + gap;
+    const rowLow = H - B - 14;
+    const rowHigh = rowLow - B - gap;
+
+    this._hold(lx, rowLow, B, 'left', 'left');
+    this._hold(lx2, rowLow, B, 'right', 'right');
+    this._hold(lx, rowHigh, B, 'jump', 'jumpQueued');
+    this._tap(lx2, rowHigh, B, 'focus', () => s.focusCamera());
+
+    // Справа: «Огонь» в углу, слева от него угол прицела, над ними — камера.
+    // Раскладка считается от круга, иначе квадраты наезжают на него.
+    const fireCx = W - 30 - FR, fireCy = H - 30 - FR;
+    const ax = fireCx - FR - gap - B;
+    const aimLow = fireCy + FR - B;
+    const aimHigh = aimLow - B - gap;
+    const camRow = aimHigh - B - gap;
+
+    this._hold(ax, aimHigh, B, 'up', 'aimUp');
+    this._hold(ax, aimLow, B, 'down', 'aimDown');
+    this._tap(fireCx - B / 2, camRow, B, 'overview', () => s.rig.toggleOverview());
+
+    // Полного экрана нет в Safari на iPhone — там кнопку не показываем
+    if (s.scale.fullscreen.available) {
+      this._tap(ax, camRow, B, 'fullscreen', () => {
+        if (s.scale.isFullscreen) s.scale.stopFullscreen();
+        else s.scale.startFullscreen();
+      });
+    }
+
+    this._fireButton(fireCx, fireCy, FR);
+
+    // Центры кнопок наружу: раскладка зависит от пропорций экрана, и
+    // тестам незачем повторять её вычисления у себя.
+    this.buttons = {
+      fire: { x: fireCx, y: fireCy },
+      aimUp: { x: ax + B / 2, y: aimHigh + B / 2 },
+      aimDown: { x: ax + B / 2, y: aimLow + B / 2 },
+      overview: { x: fireCx, y: camRow + B / 2 },
+      focus: { x: lx2 + B / 2, y: rowHigh + B / 2 },
+      left: { x: lx + B / 2, y: rowLow + B / 2 },
+      right: { x: lx2 + B / 2, y: rowLow + B / 2 },
+    };
+  }
+
+  _plate(x, y, size, iconName) {
+    const s = this.scene;
+    const key = `ui-sq-${size}`;
+    ensureButton(s, key, size, size, 'normal');
+    const img = this.fix(s.add.image(x + size / 2, y + size / 2, key));
+    img.setInteractive({ useHandCursor: true });
+    const iconKey = ensureIcon(s, iconName, Math.round(size * 0.62));
+    if (iconKey) this.fix(s.add.image(x + size / 2, y + size / 2, iconKey), DEPTH.HUD + 1);
+    this.uiRects.push({ x, y, w: size, h: size });
+    return img;
+  }
+
+  _hold(x, y, size, iconName, action) {
+    const s = this.scene;
+    const img = this._plate(x, y, size, iconName);
+    img.on('pointerdown', () => { this._press(img); s.moveInput[action] = true; });
+    const release = () => {
+      this._unpress(img);
+      // jumpQueued — одноразовый флаг, его сцена сама сбрасывает за кадр
+      if (action !== 'jumpQueued') s.moveInput[action] = false;
+    };
+    img.on('pointerup', release);
+    img.on('pointerout', release);
+    this.holdButtons.push({ release });
+  }
+
+  _tap(x, y, size, iconName, onTap) {
+    const img = this._plate(x, y, size, iconName);
+    img.on('pointerdown', () => { this._press(img); onTap(); });
+    const release = () => this._unpress(img);
+    img.on('pointerup', release);
+    img.on('pointerout', release);
+    this.holdButtons.push({ release });
   }
 
   /**
@@ -197,48 +236,86 @@ export class Hud {
    * Отпускание ловится и глобально (_releaseAll), иначе увод пальца
    * за пределы кнопки оставил бы заряд висеть навсегда.
    */
-  _makeFireButton(cx, cy, r) {
+  _fireButton(cx, cy, r) {
     const s = this.scene;
-    const circle = s.rig.ui(s.add.circle(cx, cy, r, 0x7a2230, 0.92)
-      .setScrollFactor(0).setDepth(DEPTH.HUD));
-    circle.setStrokeStyle(3, 0xff6b6b);
-    circle.setInteractive(new Phaser.Geom.Circle(r, r, r), Phaser.Geom.Circle.Contains);
-    s.rig.ui(s.add.text(cx, cy, 'ОГОНЬ', {
-      fontFamily: 'monospace', fontSize: '15px', color: '#ffe0e0',
-    }).setOrigin(0.5).setScrollFactor(0).setDepth(DEPTH.HUD + 1));
+    ensureRoundButton(s, 'ui-fire', r, 'primary');
+    const img = this.fix(s.add.image(cx, cy, 'ui-fire'));
+    img.setInteractive(new Phaser.Geom.Circle(img.width / 2, img.height / 2, r),
+      Phaser.Geom.Circle.Contains);
+    this.fix(s.add.text(cx, cy, 'ОГОНЬ', font(16, 800)).setOrigin(0.5), DEPTH.HUD + 1);
 
-    circle.on('pointerdown', () => {
-      s.moveInput.fire = true;
-      circle.setFillStyle(0xd03a4a, 0.95);
-    });
-    const release = () => {
-      s.moveInput.fire = false;
-      circle.setFillStyle(0x7a2230, 0.92);
-    };
-    circle.on('pointerup', release);
-    circle.on('pointerout', release);
-
-    this.moveButtons.push({ rect: circle, release });
+    img.on('pointerdown', () => { this._press(img); s.moveInput.fire = true; });
+    const release = () => { this._unpress(img); s.moveInput.fire = false; };
+    img.on('pointerup', release);
+    img.on('pointerout', release);
+    this.holdButtons.push({ release });
     this.uiRects.push({ x: cx - r, y: cy - r, w: r * 2, h: r * 2 });
 
-    // Шкала заряда над кнопкой
-    const bw = 150;
-    this.chargeBg = s.rig.ui(s.add.rectangle(cx - bw / 2, cy - r - 20, bw, 12, 0x1a2233, 0.9)
-      .setOrigin(0, 0.5).setScrollFactor(0).setDepth(DEPTH.HUD));
-    this.chargeBg.setStrokeStyle(1, 0x3a4a66);
-    this.chargeBar = s.rig.ui(s.add.rectangle(cx - bw / 2, cy - r - 20, 0, 12, 0xffd166)
-      .setOrigin(0, 0.5).setScrollFactor(0).setDepth(DEPTH.HUD + 1));
-    this.chargeWidth = bw;
+    // Шкала заряда — дугой вокруг самой кнопки: видно, не отводя глаз
+    this.chargeGfx = this.fix(s.add.graphics(), DEPTH.HUD + 2);
+    this.chargeR = r + 11;
+    this.chargeCx = cx;
+    this.chargeCy = cy;
   }
 
-  _releaseAll() {
-    for (const b of this.moveButtons) b.release();
+  _press(img) { img.setScale(0.94).setTint(0xc9c9c9); }
+  _unpress(img) { img.setScale(1).clearTint(); }
+  _releaseAll() { for (const b of this.holdButtons) b.release(); }
+
+  // ------------------------------------------------------------ подсказка
+
+  _buildHelp(W, H) {
+    const s = this.scene;
+    // Снизу слева от панели оружия: справа сверху она перекрывала
+    // указатели на бойцов вне экрана.
+    this._tap(206, H - 62, 48, 'help', () => this.toggleHelp());
+
+    const lines = [
+      'ОГОНЬ — держи, набирается сила; отпустил — выстрел',
+      'вверх/вниз справа — угол прицела',
+      'влево/вправо слева — ходьба, над ними прыжок',
+      'тянуть фон — камера, два пальца — приблизить',
+      'кнопки справа — вернуть камеру и обзор всей карты',
+      'свайп прямо по бойцу — быстрый выстрел',
+    ];
+    const w = 560, h = lines.length * 27 + 96;
+    const x = Math.round((W - w) / 2), y = Math.round((H - h) / 2);
+
+    ensureButton(s, 'ui-help', w, h, 'normal');
+    this.helpPanel = [
+      this.fix(s.add.image(x + w / 2, y + h / 2, 'ui-help'), DEPTH.HUD + 20),
+      this.fix(s.add.text(x + w / 2, y + 18, 'УПРАВЛЕНИЕ', font(19, 800, UI.accent))
+        .setOrigin(0.5, 0), DEPTH.HUD + 21),
+      this.fix(s.add.text(x + w / 2, y + h - 24, 'нажми «?» справа сверху, чтобы закрыть',
+        font(12, 700, UI.textDim)).setOrigin(0.5, 0.5), DEPTH.HUD + 21),
+    ];
+    lines.forEach((line, i) => {
+      this.helpPanel.push(this.fix(
+        s.add.text(x + 30, y + 56 + i * 27, `·  ${line}`, font(14, 700)), DEPTH.HUD + 21,
+      ));
+    });
+    this.setHelp(true);
+
+    // Подсказка закрывается любым касанием — искать кнопку не нужно
+    this.scene.input.on('pointerdown', () => {
+      if (this.helpVisible) this.setHelp(false);
+    });
   }
+
+  setHelp(on) {
+    this.helpVisible = on;
+    for (const o of this.helpPanel) o.setVisible(on);
+  }
+
+  toggleHelp() { this.setHelp(!this.helpVisible); }
+
+  // --------------------------------------------------------------- прочее
 
   /** Попал ли указатель в интерфейс — тогда это не прицеливание и не камера. */
   isOverUI(pointer) {
     const px = pointer.x, py = pointer.y;
-    if (py < 54) return true; // верхняя панель
+    if (py < TOP_H) return true;
+    if (this.helpVisible) return true;   // подсказка перекрывает всё поле
     for (const r of this.uiRects) {
       if (px >= r.x && px <= r.x + r.w && py >= r.y && py <= r.y + r.h) return true;
     }
@@ -249,56 +326,101 @@ export class Hud {
     for (let k = 0; k < this.weaponButtons.length; k++) {
       const b = this.weaponButtons[k];
       const on = k === i;
-      b.rect.setStrokeStyle(2, on ? WEAPONS[k].color : 0x2f3d5c);
-      b.rect.setFillStyle(on ? 0x1c2942 : 0x121a2c, 0.9);
-      // Иконка может быть картинкой или текстом — приглушаем подходящим способом
-      if (b.icon.setColor) b.icon.setColor(on ? '#ffffff' : '#8f9db6');
-      else b.icon.setAlpha(on ? 1 : 0.5);
-      b.name.setColor(on ? '#e6ecf7' : '#7c8aa5');
+      b.plate.setTexture(on ? 'ui-weapon-on' : 'ui-weapon');
+      b.name.setColor(on ? '#2a1c06' : UI.textDim);
+      if (b.icon.setColor) b.icon.setColor(on ? '#2a1c06' : UI.text);
+      else b.icon.setAlpha(on ? 1 : 0.6);
     }
   }
 
   update() {
     const scene = this.scene;
     const turn = scene.turn;
-
     const team = turn.currentTeam;
     const worm = turn.activeWorm;
-    this.turnText.setText(`Ход: ${TEAM_NAMES[team]}${worm ? ` · боец ${worm.name}` : ''}`);
+
+    this.teamChip.fillColor = TEAM_COLORS[team];
+    this.turnText.setText(worm ? `Боец ${worm.name}` : TEAM_NAMES[team]);
     this.turnText.setColor(hex(TEAM_COLORS[team]));
-    this.biomeText.setText(`${scene.terrain.biome.name} · ${turn.weapon.name}`);
+    this.subText.setText(`${TEAM_NAMES[team]} · ${scene.terrain.biome.name} · ${turn.weapon.name}`);
 
+    this._updateTimer(turn);
+    this._updateWind(scene.wind);
+    this._updateTeams(scene);
+    this._updateCharge(scene);
+    this._updateAmmo(turn);
+  }
+
+  _updateTimer(turn) {
     const left = Math.max(0, turn.timeLeft);
+    const frac = Phaser.Math.Clamp(left / CFG.TURN_TIME, 0, 1);
+    const urgent = left <= 5;
+    const color = urgent ? 0xff6b6b : left <= 12 ? 0xffd166 : 0x6ee36e;
+
     this.timerText.setText(Math.ceil(left).toString());
-    this.timerText.setColor(left <= 5 ? '#ff6b6b' : '#ffffff');
-    this.timerBar.width = this.timerBarWidth * Phaser.Math.Clamp(left / CFG.TURN_TIME, 0, 1);
-    this.timerBar.fillColor = left <= 5 ? 0xff6b6b : left <= 12 ? 0xffd166 : 0x6ee36e;
+    this.timerText.setColor(urgent ? '#ff9a9a' : UI.text);
+    // Под конец хода цифра пульсирует: одного цвета мало, его не замечают
+    this.timerText.setScale(urgent ? 1 + Math.sin(this.scene.time.now / 90) * 0.09 : 1);
 
-    const wind = scene.wind;
-    this.windText.setText(`${wind > 0 ? '→' : wind < 0 ? '←' : '·'} ${Math.abs(Math.round(wind))}`);
-    this.windGfx.clear();
-    const cx = this.windCx, cy = 30, half = 55;
-    this.windGfx.fillStyle(0x2b3550, 1).fillRect(cx - half, cy - 5, half * 2, 10);
+    const g = this.timerGfx;
+    const r = 23;
+    g.clear();
+    g.lineStyle(5, 0x11151d, 0.9);
+    g.strokeCircle(this.timerCx, this.timerCy, r);
+    if (frac > 0) {
+      g.lineStyle(5, color, 1);
+      g.beginPath();
+      g.arc(this.timerCx, this.timerCy, r, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * frac);
+      g.strokePath();
+    }
+  }
+
+  _updateWind(wind) {
+    const g = this.windGfx;
+    const half = 52, cy = this.windCy, cx = this.windCx;
+    this.windText.setText(`${Math.abs(Math.round(wind))}`);
+    g.clear();
+    g.fillStyle(0x11151d, 0.9).fillRect(cx - half, cy - 6, half * 2, 12);
     const k = Phaser.Math.Clamp(wind / CFG.WIND_MAX, -1, 1);
-    this.windGfx.fillStyle(k >= 0 ? 0x6ecbff : 0xffa46e, 1);
-    if (k >= 0) this.windGfx.fillRect(cx, cy - 5, half * k, 10);
-    else this.windGfx.fillRect(cx + half * k, cy - 5, -half * k, 10);
-    this.windGfx.fillStyle(0xffffff, 0.9).fillRect(cx - 1, cy - 9, 2, 18);
+    g.fillStyle(k >= 0 ? 0x6ecbff : 0xffa46e, 1);
+    if (k >= 0) g.fillRect(cx, cy - 5, half * k, 10);
+    else g.fillRect(cx + half * k, cy - 5, -half * k, 10);
+    g.fillStyle(0xffffff, 0.85).fillRect(cx - 1, cy - 9, 2, 18);
+  }
 
-    // Подсказка по управлению нужна первые ходы, дальше только мешает
-    this.hint.setAlpha(Phaser.Math.Clamp((5 - turn.turnNumber) / 2, 0, 1));
-
-    // Шкала заряда: жёлтая на наборе, красная у максимума
-    const c = Phaser.Math.Clamp(scene.charge, 0, 1);
-    this.chargeBar.width = this.chargeWidth * c;
-    this.chargeBar.fillColor = c > 0.85 ? 0xff6b6b : c > 0.55 ? 0xffa34d : 0xffd166;
-
+  _updateTeams(scene) {
     for (let t = 0; t < CFG.TEAMS; t++) {
       const living = scene.worms.filter((w) => w.team === t && w.alive);
       const total = living.reduce((a, w) => a + w.health, 0);
       const b = this.teamBars[t];
-      b.bar.width = b.width * Phaser.Math.Clamp(total / b.max, 0, 1);
+      b.bar.width = b.width * Phaser.Math.Clamp(
+        total / (CFG.MAX_HEALTH * CFG.WORMS_PER_TEAM), 0, 1,
+      );
       b.cnt.setText(`${living.length}/${CFG.WORMS_PER_TEAM}`);
+    }
+  }
+
+  _updateCharge(scene) {
+    const g = this.chargeGfx;
+    g.clear();
+    const c = Phaser.Math.Clamp(scene.charge, 0, 1);
+    if (c <= 0) return;
+    g.lineStyle(7, c > 0.85 ? 0xff6b6b : c > 0.55 ? 0xffa34d : 0xffd166, 1);
+    g.beginPath();
+    g.arc(this.chargeCx, this.chargeCy, this.chargeR,
+      -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * c);
+    g.strokePath();
+  }
+
+  _updateAmmo(turn) {
+    for (let i = 0; i < WEAPONS.length; i++) {
+      const n = turn.ammoOf ? turn.ammoOf(i) : Infinity;
+      const b = this.weaponButtons[i];
+      b.ammo.setText(Number.isFinite(n) ? `${n}` : '∞');
+      // На выбранной плашке фон янтарный — акцентный цвет на нём не читается
+      const on = this.scene.turn.weaponIndex === i;
+      b.ammo.setColor(n === 0 ? '#ff7b7b' : on ? '#2a1c06' : UI.accent);
+      b.plate.setAlpha(n === 0 ? 0.5 : 1);
     }
   }
 }
