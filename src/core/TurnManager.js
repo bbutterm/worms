@@ -18,6 +18,7 @@ export class TurnManager {
     this.timeLeft = CFG.TURN_TIME;
     this.resolveTimer = 0;
     this.flyTimer = 0;
+    this.holdTimer = 0;     // сколько ждём ход соперника
     this.weaponIndex = 0;
     this.teamCursor = new Array(CFG.TEAMS).fill(0);
     this.turnNumber = 0;
@@ -118,6 +119,54 @@ export class TurnManager {
     );
   }
 
+  /**
+   * Навязать ход снаружи — так очередь передаётся в сетевой партии.
+   *
+   * Очередь считает не каждый клиент сам по себе: на смертях и досрочных
+   * концах хода два счёта неизбежно разъезжаются, а от номера хода зависит
+   * и ветер, и ящики. Поэтому ходивший передаёт очередь, а второй её просто
+   * принимает.
+   */
+  forceTurn(info) {
+    const worm = this.scene.worms[info.worm];
+    if (!worm || !worm.alive) return false;
+
+    this.currentTeam = info.team;
+    this.activeWorm = worm;
+    this.turnNumber = info.turn;
+    this.teamCursor = info.cursors ? info.cursors.slice() : this.teamCursor;
+    this.timeLeft = CFG.TURN_TIME;
+    this.holdTimer = 0;
+    this.state = STATE.AIM;
+
+    this.weaponIndex = info.weapon ?? this.weaponIndex;
+    this.scene.hud.setWeaponIndex(this.weaponIndex);
+
+    // Ящики и ветер приходят снимком, поэтому здесь только поток случайности
+    this.scene.beginTurnRandom(this.turnNumber);
+    this.scene.resetAim();
+
+    for (const w of this.scene.worms) w.setActiveMarker(w === worm);
+    this.scene.followTarget = worm;
+    this.scene.frameTurn(worm);
+    this.scene.fx.banner(
+      `${TEAM_NAMES[info.team]} — ход ${this.turnNumber}`,
+      hex(TEAM_COLORS[info.team]), 1200,
+    );
+    return true;
+  }
+
+  /**
+   * Ждём ли сейчас соперника. Ждём — значит очередь не двигаем сами.
+   * Ожидание не вечное: если связь пропала, через NET_WAIT играем дальше
+   * локально, зависшая партия хуже разошедшейся.
+   */
+  _holding(dt) {
+    if (!this.scene.awaitingPeer?.()) { this.holdTimer = 0; return false; }
+    this.holdTimer = (this.holdTimer ?? 0) + dt;
+    return this.holdTimer < CFG.NET_WAIT;
+  }
+
   /** Следующий живой боец команды по кругу. */
   _pickWorm(team) {
     const list = this.scene.worms.filter((w) => w.team === team);
@@ -162,7 +211,10 @@ export class TurnManager {
 
     switch (this.state) {
       case STATE.AIM: {
-        this.timeLeft -= dt;
+        this.timeLeft = Math.max(0, this.timeLeft - dt);
+        // Чужой ход кончает сам соперник: наши часы могут отстать от его на
+        // доли секунды, и обрывать ход по ним — значит сбить чужой выстрел.
+        if (this._holding(dt)) break;
         if (!this.activeWorm || !this.activeWorm.alive) { this.endTurn(); break; }
         if (this.timeLeft <= 0) {
           scene.fx.banner('Время вышло', '#ffd166', 1000);
@@ -191,7 +243,12 @@ export class TurnManager {
         const quiet = scene.projectiles.length === 0 && scene.worms.every((w) => w.settled);
         if ((quiet && this.resolveTimer >= CFG.RESOLVE_SETTLE)
           || this.resolveTimer >= CFG.RESOLVE_TIMEOUT) {
+          if (this._holding(dt)) break;   // очередь передаст тот, кто ходил
+          const acted = this.currentTeam;
           this.next();
+          // Снимок уходит уже после передачи очереди: в нём и итог хода,
+          // и то, кому ходить дальше — второй клиент это просто принимает.
+          scene.onTurnResolved?.(acted);
         }
         break;
       }

@@ -269,6 +269,12 @@ export class Hud {
     // Снизу слева от панели оружия: справа сверху она перекрывала
     // указатели на бойцов вне экрана.
     this._tap(206, H - 62, 48, 'help', () => this.toggleHelp());
+    this._tap(206 + 48 + 8, H - 62, 48, 'link', () => s.shareInvite());
+
+    // Строка сетевого статуса живёт над этими кнопками и в локальной
+    // партии пуста — обычной игре она не мешает
+    this.netText = this.fix(s.add.text(206, H - 70, '', font(12, 800, UI.accent))
+      .setOrigin(0, 1), DEPTH.HUD + 1);
 
     const lines = [
       'ОГОНЬ — держи, набирается сила; отпустил — выстрел',
@@ -277,6 +283,7 @@ export class Hud {
       'тянуть фон — камера, два пальца — приблизить',
       'кнопки справа — вернуть камеру и обзор всей карты',
       'свайп прямо по бойцу — быстрый выстрел',
+      'кнопка со звеньями — игра вдвоём по ссылке',
     ];
     const w = 560, h = lines.length * 27 + 96;
     const x = Math.round((W - w) / 2), y = Math.round((H - h) / 2);
@@ -308,6 +315,10 @@ export class Hud {
   }
 
   toggleHelp() { this.setHelp(!this.helpVisible); }
+
+  setNetStatus(text, color = UI.accent) {
+    this.netText?.setText(text).setColor(color);
+  }
 
   // --------------------------------------------------------------- прочее
 

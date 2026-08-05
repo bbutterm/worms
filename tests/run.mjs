@@ -34,6 +34,20 @@ const server = createServer(async (req, res) => {
 await new Promise((r) => server.listen(PORT, r));
 console.log(`статика на http://127.0.0.1:${PORT}\n`);
 
-const child = spawn(process.execPath, ['tests/smoke.mjs', `http://127.0.0.1:${PORT}`],
-  { stdio: 'inherit' });
-child.on('exit', (code) => { server.close(); process.exit(code ?? 1); });
+// Наборов два: обычная игра и сетевая партия из двух вкладок.
+// Можно взять один: node tests/run.mjs net
+const only = process.argv[2];
+const suites = ['smoke', 'net'].filter((s) => !only || s === only);
+
+let code = 0;
+for (const suite of suites) {
+  console.log(`\n=== ${suite} ===`);
+  const c = await new Promise((resolve) => {
+    const child = spawn(process.execPath, [`tests/${suite}.mjs`, `http://127.0.0.1:${PORT}`],
+      { stdio: 'inherit' });
+    child.on('exit', (n) => resolve(n ?? 1));
+  });
+  if (c) code = c;
+}
+server.close();
+process.exit(code);

@@ -170,6 +170,20 @@ const ICONS = {
   },
   overview: (ctx, s) => corners(ctx, s, true),
   fullscreen: (ctx, s) => corners(ctx, s, false),
+  // Два звена цепи: приглашение по ссылке
+  link: (ctx, s) => {
+    stroke(ctx, s);
+    const c = s / 2, r = s * 0.15, d = s * 0.17;
+    for (const k of [-1, 1]) {
+      ctx.beginPath();
+      ctx.arc(c + d * k, c - d * k, r, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+    ctx.beginPath();
+    ctx.moveTo(c - d * 0.55, c + d * 0.55);
+    ctx.lineTo(c + d * 0.55, c - d * 0.55);
+    ctx.stroke();
+  },
   help: (ctx, s) => {
     stroke(ctx, s);
     ctx.lineCap = 'round';

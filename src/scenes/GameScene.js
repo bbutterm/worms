@@ -12,6 +12,9 @@ import { AimController } from '../ui/AimController.js';
 import { font, UI } from '../ui/theme.js';
 import { WEAPONS } from '../weapons/index.js';
 import { captureCommand } from '../net/protocol.js';
+import { NetSession } from '../net/session.js';
+import { ChannelTransport, SupabaseTransport, randomRoom, copyText } from '../net/transport.js';
+import { supabaseConfig, loadCreateClient } from '../net/supabase.js';
 import { OffscreenMarkers } from '../ui/OffscreenMarkers.js';
 import { CameraRig } from '../ui/CameraRig.js';
 
@@ -66,7 +69,102 @@ export default class GameScene extends Phaser.Scene {
     this.rig.bgCam.setBackgroundColor(biome.fallback.sky[1]);
     this.turn.begin(this.rng.int(0, CFG.TEAMS - 1));
 
+    this._setupNet();
     this.events.once('shutdown', this._shutdown, this);
+  }
+
+  // ------------------------------------------------------------------ сеть
+
+  /**
+   * Онлайн включается только адресом: ?room=КОД. Без него игра как была —
+   * локальный хотсит, никакой сети и никаких подключений.
+   */
+  _setupNet() {
+    const room = new URLSearchParams(location.search).get('room');
+    if (!room) return;
+    this.room = room;
+
+    // Сессия одна на всю вкладку: рестарт сцены её не рвёт
+    this.net = this.registry.get('net');
+    if (this.net) {
+      this.net.scene = this;
+      this.myTeam = this.net.myTeam;
+      this.net.onStatus = (text) => this._netStatus(text);
+      this._netStatus(this.net.paired ? '' : 'ждём второго игрока…');
+      return;
+    }
+
+    this._netStatus('подключаемся…');
+    this._makeTransport().then((transport) => {
+      this.net = new NetSession(this, transport, room);
+      this.net.onStatus = (text) => this._netStatus(text);
+      this.registry.set('net', this.net);
+      return this.net.start();
+    }).catch((e) => {
+      console.warn('[net] не удалось подключиться', e);
+      this.fx.banner('сеть недоступна, играем локально', '#ff9a9a', 2600);
+      this._netStatus('нет связи — локальная игра', '#ff9a9a');
+      this.net = null;
+      this.registry.set('net', null);
+    });
+  }
+
+  /**
+   * Через интернет — Supabase Realtime, если заданы ключи; иначе игра
+   * работает между вкладками одного браузера. Второе не заглушка: так
+   * реально можно сыграть вдвоём за одним компьютером.
+   */
+  async _makeTransport() {
+    // Транспорт можно навязать снаружи — этим пользуются тесты и этим же
+    // подключится свой сервер, если он когда-нибудь понадобится
+    if (globalThis.WORMS_TRANSPORT) return globalThis.WORMS_TRANSPORT();
+    const cfg = supabaseConfig();
+    if (!cfg) return new ChannelTransport();
+    const createClient = await loadCreateClient(cfg.esm);
+    return new SupabaseTransport({ url: cfg.url, anonKey: cfg.anonKey, createClient });
+  }
+
+  _netStatus(text, color) {
+    if (text != null) this.netStatusText = text;
+    const parts = [];
+    if (this.room) parts.push(`комната ${this.room}`);
+    if (this.netStatusText) parts.push(this.netStatusText);
+    this.hud.setNetStatus(parts.join(' · '), color);
+  }
+
+  /** Спарились: перезапускаем партию с общим зерном. */
+  startNetMatch(seed, myTeam) {
+    this.myTeam = myTeam;
+    this.registry.set('seed', seed);
+    // Перезапуск безусловный: к моменту встречи локальная партия уже могла
+    // уйти вперёд, а начинать надо с одинакового состояния.
+    this.scene.restart();
+  }
+
+  /** Ссылка-приглашение для второго игрока. */
+  inviteLink(room = this.room) {
+    const url = new URL(location.href);
+    url.searchParams.set('room', room || randomRoom());
+    return url.toString();
+  }
+
+  /**
+   * Кнопка «звенья»: в комнате — копирует ссылку, вне комнаты — спрашивает
+   * код друга (пусто — создаём свою) и перезаходит уже в комнату.
+   */
+  shareInvite() {
+    if (this.room) {
+      const link = this.inviteLink();
+      copyText(link);
+      this.fx.banner(`ссылка скопирована · комната ${this.room}`, '#ffd166', 2600);
+      return link;
+    }
+    const answer = (globalThis.prompt?.('Код комнаты друга (пусто — создать свою):', '') ?? '')
+      .trim().toUpperCase();
+    const link = this.inviteLink(answer || randomRoom());
+    copyText(link);
+    location.href = link;      // перезаход: сессия поднимается на старте сцены
+    return link;
   }
 
   // ------------------------------------------------------------- построение
@@ -286,6 +384,15 @@ export default class GameScene extends Phaser.Scene {
     this.turn.update(realDt);
     this.hud.update();
     this.offscreen.update();
+    this._updateNetStatus();
+  }
+
+  /** Строка «чей ход» в сетевой партии. Переписывается только при смене. */
+  _updateNetStatus() {
+    if (!this.net?.connected || this.turn.state === STATE.OVER) return;
+    const mine = this.turn.currentTeam === this.net.myTeam;
+    const text = mine ? 'ваш ход' : 'ход соперника';
+    if (text !== this.netStatusText) this._netStatus(text, mine ? '#8ef0a0' : '#ffd166');
   }
 
   _handleMovement(dt, realDt) {
@@ -449,15 +556,31 @@ export default class GameScene extends Phaser.Scene {
   // -------------------------------------------------------------- геймплей
 
   canPlayerAct() {
-    return this.turn.state === STATE.AIM;
+    if (this.turn.state !== STATE.AIM) return false;
+    if (this.replaying) return false;         // идёт показ чужого хода
+    // В сетевой партии ходит только тот, чья команда сейчас на очереди
+    if (this.net?.connected && this.net.myTeam !== this.turn.currentTeam) return false;
+    return true;
+  }
+
+  /**
+   * Ждём ли мы сейчас хода соперника. Пока ждём, очередь не двигаем сами:
+   * её передаёт тот, кто ходил. Победа — исключение, её видно обоим.
+   */
+  awaitingPeer() {
+    if (!this.net?.connected) return false;
+    if (this.turn.currentTeam === this.net.myTeam) return false;
+    return this.checkVictory() === null;
   }
 
   setWind(v) { this.wind = v; }
 
-  /** Новый поток случайности на ход и чистый журнал взрывов. */
+  /**
+   * Новый поток случайности на ход. Журнал взрывов здесь не трогаем: он
+   * доживает до снимка, который уходит уже после передачи очереди.
+   */
   beginTurnRandom(turnNumber) {
     this.turnRng = subRng(this.seed, turnNumber);
-    this.explosionLog = [];
   }
 
   setCameraManual(on) { this.rig.manual = on; this.rig.idle = 0; }
@@ -465,7 +588,10 @@ export default class GameScene extends Phaser.Scene {
   /** Выстрел активного бойца. Ход сразу переходит дальше. */
   fireActiveWorm(vx, vy) {
     const w = this.turn.activeWorm;
-    if (!this.canPlayerAct() || !w || !w.alive) return;
+    // Показ чужого хода идёт мимо проверки прав: приказ уже состоялся
+    // у соперника, наше дело — повторить его на экране.
+    const allowed = this.replaying ? this.turn.state === STATE.AIM : this.canPlayerAct();
+    if (!allowed || !w || !w.alive) return;
 
     const len = Math.hypot(vx, vy) || 1;
     const nx = vx / len, ny = vy / len;
@@ -482,7 +608,11 @@ export default class GameScene extends Phaser.Scene {
     w.facing = nx >= 0 ? 1 : -1;
     // Приказ уходит наружу до симуляции: сеть должна получить ровно то,
     // что игрок задал, а не то, что из этого вышло локально.
-    if (!this.replaying) this.onShot?.(captureCommand(this, vx, vy));
+    if (!this.replaying) {
+      const cmd = captureCommand(this, vx, vy);
+      this.onShot?.(cmd);
+      this.net?.sendShot(cmd);
+    }
     const shots = this.turn.weapon.fire(this, sx, sy, vx, vy, w);
     this.projectiles.push(...shots);
     this.turn.onFired();
@@ -502,8 +632,12 @@ export default class GameScene extends Phaser.Scene {
       this.rig.shake(220, cfg.shake ?? 0.006);
       return;
     }
-    this.explosionLog.push({ x: Math.round(x), y: Math.round(y), r: cfg.radius });
-    this.terrain.destroyCircle(x, y, cfg.radius);
+    // Воронку режем ровно по целым: у соперника она восстанавливается из
+    // журнала, а он целочисленный — на дробных координатах края круга
+    // разъезжались бы на пиксель, и земля переставала совпадать.
+    const ix = Math.round(x), iy = Math.round(y);
+    this.explosionLog.push({ x: ix, y: iy, r: cfg.radius });
+    this.terrain.destroyCircle(ix, iy, cfg.radius);
     this.fx.explosion(x, y, cfg.radius);
     this.rig.shake(220, cfg.shake ?? 0.006);
 
@@ -528,9 +662,16 @@ export default class GameScene extends Phaser.Scene {
     }
   }
 
+  /** Ход отыгран и очередь передана — отдаём второму игроку итог. */
+  onTurnResolved(actedTeam) {
+    this.net?.sendState(actedTeam);
+    this.explosionLog = [];
+  }
+
   onWormDied(worm) {
     this.fx.explosion(worm.x, worm.centerY, 26);
-    this.terrain.destroyCircle(worm.x, worm.centerY, 22);
+    // Тоже по целым: у соперника гибель приходит снимком с целыми координатами
+    this.terrain.destroyCircle(Math.round(worm.x), Math.round(worm.centerY), 22);
     this.rig.shake(160, 0.004);
     // Ход обрывается, если погиб тот, кто ходит, либо если команда выбита
     // целиком — иначе победа ждала бы истечения 30-секундного таймера.

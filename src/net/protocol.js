@@ -35,7 +35,13 @@ export function captureCommand(scene, vx, vy) {
   };
 }
 
-/** Показать чужой выстрел: без урона и разрушений, только картинка. */
+/**
+ * Показать чужой выстрел: без урона и разрушений, только картинка.
+ *
+ * Состояние хода здесь навязывается приказом, а не сверяется с ним: часы
+ * двух клиентов расходятся, и если наш таймер успел оборвать ход, чужой
+ * выстрел всё равно обязан проиграться.
+ */
 export function applyCommand(scene, cmd) {
   const w = scene.worms[cmd.worm];
   if (!w || !w.alive) return false;
@@ -43,6 +49,9 @@ export function applyCommand(scene, cmd) {
   w.x = cmd.x;
   w.y = cmd.y;
   w.facing = cmd.facing;
+  scene.turn.state = 'aim';
+  scene.turn.currentTeam = w.team;
+  scene.turn.activeWorm = w;
   scene.turn.weaponIndex = cmd.weapon;
   scene.hud.setWeaponIndex(cmd.weapon);
 
@@ -51,14 +60,18 @@ export function applyCommand(scene, cmd) {
   return true;
 }
 
-/** Снимок партии на конец хода. */
+/** Снимок партии: итог хода и то, кому ходить дальше. */
 export function captureState(scene) {
   return {
     turn: scene.turn.turnNumber,
     team: scene.turn.currentTeam,
+    worm: scene.worms.indexOf(scene.turn.activeWorm),
+    cursors: scene.turn.teamCursor.slice(),
+    over: scene.turn.state === 'over',
     weapon: scene.turn.weaponIndex,
     wind: Math.round(scene.wind),
     explosions: scene.explosionLog.slice(),
+    terrain: scene.terrain.hash(),
     worms: scene.worms.map((w) => ({
       x: Math.round(w.x),
       y: Math.round(w.y),
@@ -78,6 +91,11 @@ export function captureState(scene) {
  * показа чужого хода они только рисовались.
  */
 export function applyState(scene, state) {
+  // Снаряд показа мог не долететь — например, вкладку свернули и кадры
+  // перестали идти. Долетев потом, он взорвался бы уже по-настоящему.
+  for (const p of scene.projectiles) p.destroy();
+  scene.projectiles.length = 0;
+
   for (const e of state.explosions ?? []) {
     scene.terrain.destroyCircle(e.x, e.y, e.r);
   }
@@ -85,16 +103,18 @@ export function applyState(scene, state) {
   state.worms.forEach((s, i) => {
     const w = scene.worms[i];
     if (!w) return;
+    // Координаты ставим и мёртвому: от места гибели остаётся воронка,
+    // и она обязана совпасть с воронкой у соперника.
+    w.x = s.x;
+    w.y = s.y;
+    w.facing = s.facing;
+    w.vx = 0;
+    w.vy = 0;
     if (!s.alive) {
       if (w.alive) w.kill('сеть');
       return;
     }
-    w.x = s.x;
-    w.y = s.y;
     w.health = s.hp;
-    w.facing = s.facing;
-    w.vx = 0;
-    w.vy = 0;
     w.grounded = w.supported(w.x, w.y);
   });
 
@@ -112,6 +132,15 @@ export function applyState(scene, state) {
 
   scene.replaying = false;
   scene.explosionLog = [];
+
+  // Очередь принимаем как есть. Если ходивший объявил конец партии,
+  // очередь навязывать нечему — победу клиент увидит сам по трупам.
+  if (!state.over && state.worm >= 0) {
+    scene.turn.forceTurn({
+      turn: state.turn, team: state.team, worm: state.worm,
+      weapon: state.weapon, cursors: state.cursors,
+    });
+  }
 }
 
 /**
@@ -125,10 +154,14 @@ export function stateHash(state) {
     h = Math.imul(h, 16777619);
   };
   mix(state.turn);
+  mix(state.team);
+  mix(state.worm);
   mix(state.wind);
   for (const w of state.worms) { mix(w.x); mix(w.y); mix(w.hp); mix(w.alive ? 1 : 0); }
   for (const row of state.ammo) for (const n of row) mix(n === null ? -1 : n);
-  for (const e of state.explosions ?? []) { mix(e.x); mix(e.y); mix(e.r); }
+  // Журнал взрывов в свёртку не идёт: у принявшего он уже пуст. Сверяется
+  // результат — то, во что земля превратилась.
+  for (const ch of state.terrain ?? '') mix(ch.charCodeAt(0));
   return (h >>> 0).toString(16);
 }
 

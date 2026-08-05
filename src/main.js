@@ -32,12 +32,18 @@ async function loadUiFont() {
  * Ни Arcade, ни Matter, ни Impact — блок `physics` в конфиге отсутствует
  * намеренно. Вся физика в src/entities и src/core написана вручную.
  */
+// В одиночной игре пауза при уходе со вкладки — то, что нужно. В сетевой
+// она вредна: соперник продолжает ходить, а у нас останавливается вообще
+// всё, включая показ его выстрела и отправку собственного итога хода.
+const online = new URLSearchParams(location.search).has('room');
+
 const game = new Phaser.Game({
   type: Phaser.AUTO,
   parent: 'game',
   width: CFG.VIEW_W,
   height: CFG.VIEW_H,
   backgroundColor: '#0b1021',
+  disableVisibilityChange: online,
   scale: {
     mode: Phaser.Scale.FIT,
     autoCenter: Phaser.Scale.CENTER_BOTH,
