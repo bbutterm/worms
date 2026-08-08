@@ -114,9 +114,17 @@ export class Projectile {
     }
     if (ny < -3000) { this.destroy(); return; }
 
-    // Прямое попадание в бойца
-    const wormHit = this._wormAt(nx, ny);
-    if (wormHit) { this.x = nx; this.y = ny; this.detonate(nx, ny); return; }
+    // Прямое попадание в бойца — по всему отрезку, а не по его концу.
+    // Землю мы и так трассируем попиксельно, а бойца проверяли одной
+    // точкой: на большой скорости подшаг длиннее бойца, и снаряд проходил
+    // сквозь него насквозь. Крот на полной силе улетал за цель на треть
+    // экрана и рвался там.
+    const wormHit = this._wormOnSegment(this.x, this.y, nx, ny);
+    if (wormHit) {
+      this.x = wormHit.x; this.y = wormHit.y;
+      this.detonate(wormHit.x, wormHit.y);
+      return;
+    }
 
     // Попиксельная трассировка по маске
     const ray = this.terrain.raycast(this.x, this.y, nx, ny);
@@ -197,6 +205,25 @@ export class Projectile {
       if (!w.alive) continue;
       if (w === this.owner && this.ownerGrace > 0) continue;
       if (w.containsPoint(x, y)) return w;
+    }
+    return null;
+  }
+
+  /**
+   * Первый боец на отрезке, если он там есть, и точка касания.
+   *
+   * Шаг в четыре пикселя: боец уже вдвое шире, так что проскочить сквозь
+   * него нельзя, а считать чаще незачем — это самый горячий цикл полёта.
+   * Возвращаем именно точку входа, а не конец подшага: воронка должна лечь
+   * там, где снаряд встретил цель.
+   */
+  _wormOnSegment(x0, y0, x1, y1) {
+    const dx = x1 - x0, dy = y1 - y0;
+    const steps = Math.max(1, Math.ceil(Math.hypot(dx, dy) / 4));
+    for (let i = 1; i <= steps; i++) {
+      const t = i / steps;
+      const x = x0 + dx * t, y = y0 + dy * t;
+      if (this._wormAt(x, y)) return { x, y };
     }
     return null;
   }

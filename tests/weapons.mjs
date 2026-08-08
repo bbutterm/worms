@@ -85,14 +85,21 @@ const shoot = (weaponId, gap, aimAtTarget, fromX) => page.evaluate(
     // Идём от заданного места вправо и, если не нашли, по кругу с начала:
     // стендов больше, чем помещается на карте в один проход. Кратеры от
     // прошлых выстрелов сами отсеиваются проверкой на ровность.
+    // Ровность меряем по всей площадке, а не по её краям: бугор посередине
+    // упирал луч дробовика в землю в двадцати пикселях от стрелка, и
+    // проверка ругалась на оружие вместо стенда.
     let base = null;
     const span = s.terrain.width - 400;
     for (let k = 0; k < span / 20 && !base; k++) {
       const x = 200 + ((startX - 200 + k * 20) % span);
       const a = s.terrain.surfaceYAt(x, 0);
-      const b = s.terrain.surfaceYAt(x + dist, 0);
-      if (a === null || b === null) continue;
-      if (Math.abs(a - b) <= 6 && a < 560) base = { x, y: a };
+      if (a === null || a >= 560) continue;
+      let flat = true;
+      for (let d = 10; d <= dist && flat; d += 10) {
+        const h = s.terrain.surfaceYAt(x + d, 0);
+        if (h === null || Math.abs(h - a) > 6) flat = false;
+      }
+      if (flat) base = { x, y: a };
     }
     if (!base) return { error: 'ровной площадки не нашлось' };
 
