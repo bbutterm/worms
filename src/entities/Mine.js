@@ -26,6 +26,7 @@ export class Mine {
     this.armed = false;
     this.armTimer = CFG.MINE_ARM;
     this.fuse = 0;                  // >0 — уже пикает, скоро рванёт
+    this.ownerLeft = false;         // хозяин отошёл — теперь она и ему опасна
     this.vy = 0;
 
     const key = has(scene, 'proj_mine') ? 'proj_mine' : null;
@@ -60,13 +61,16 @@ export class Mine {
     if (!onGround) { this._fall(dt); }
     if (!this.alive) return;
 
+    // Пока поставивший не отошёл, мина его не замечает. Отошёл однажды —
+    // дальше он ей такой же, как все: вернётся — подорвётся.
+    if (!this.ownerLeft && this.owner
+      && Math.hypot(this.owner.x - this.x, this.owner.centerY - this.y) > CFG.MINE_TRIGGER) {
+      this.ownerLeft = true;
+    }
+
     if (!this.armed) {
       this.armTimer -= dt;
-      // Взводится не просто по таймеру, а когда рядом никого не осталось.
-      // Иначе мина всегда убивала своего же: ход кончается сразу после
-      // установки, поставивший стоит вплотную, и первым, кого замечает
-      // взведённая мина, оказывается он сам.
-      if (this.armTimer <= 0 && !this._someoneClose()) {
+      if (this.armTimer <= 0) {
         this.armed = true;
         if (this.view.setTexture && has(this.scene, 'proj_mine_on')) {
           this.view.setTexture('proj_mine_on');
@@ -87,9 +91,18 @@ export class Mine {
     this.view.setPosition(Math.round(this.x), Math.round(this.y));
   }
 
+  /**
+   * Есть ли кто-то в радиусе срабатывания.
+   *
+   * Поставивший не считается, пока не отошёл хоть раз. Иначе мина всегда
+   * убивала своего: ход кончается сразу после установки, хозяин стоит
+   * вплотную, и первым, кого замечает взведённая мина, оказывается он.
+   * Но и вечной поблажки нет — отошёл и вернулся, значит сам виноват.
+   */
   _someoneClose() {
     for (const w of this.scene.worms) {
       if (!w.alive) continue;
+      if (w === this.owner && !this.ownerLeft) continue;
       if (Math.hypot(w.x - this.x, w.centerY - this.y) <= CFG.MINE_TRIGGER) return true;
     }
     return false;

@@ -153,7 +153,12 @@ async function settle(ms = 6000) {
   return page.evaluate(() => {
     const s = window.__WORMS__.scene.getScene('Game');
     const { before, target, shooter } = window.__probe;
+    // Где рвануло относительно мишени. Без этого «ноль урона» ничего не
+    // объясняет: то ли оружие не бьёт, то ли снаряд улетел мимо.
+    const last = s.explosionLog[s.explosionLog.length - 1] ?? null;
     return {
+      boom: last ? `взрыв в ${Math.round(last.x - target.x)},`
+        + `${Math.round(last.y - target.centerY)} от мишени r=${last.r}` : 'взрыва не было',
       damage: before.health - target.health,
       selfDamage: before.shooterHealth - shooter.health,
       crater: before.solid - s.terrain.solid.reduce((a, v) => a + v, 0),
@@ -171,7 +176,7 @@ for (const id of ['bazooka', 'grenade', 'cluster', 'mole', 'banana', 'holy', 'mo
   if (start.error) { check(`${id}: стенд собрался`, false, start.error); continue; }
   const r = await settle();
   check(`${id}: наносит урон в упор`, r.damage > 0,
-    `${r.damage} hp, воронка ${r.crater} px, отбросило на ${r.moved} px`);
+    `${r.damage} hp, воронка ${r.crater} px, отбросило на ${r.moved} px, ${r.boom}`);
   check(`${id}: рвёт землю`, r.crater > 100, `${r.crater} px`);
 }
 
@@ -183,7 +188,7 @@ for (const id of ['bazooka', 'grenade', 'cluster', 'mole', 'banana', 'holy', 'mo
     check('дробовик: попадание считается сразу', start.flying === 0,
       `снарядов в воздухе: ${start.flying}`);
     const r = await settle(1500);
-    check('дробовик: наносит урон', r.damage > 0, `${r.damage} hp`);
+    check('дробовик: наносит урон', r.damage > 0, `${r.damage} hp, ${r.boom}`);
   }
 }
 
