@@ -6,6 +6,7 @@ import { TurnManager, STATE } from '../core/TurnManager.js';
 import { has, meta } from '../core/assets.js';
 import { Worm } from '../entities/Worm.js';
 import { Crate } from '../entities/Crate.js';
+import { Mine } from '../entities/Mine.js';
 import { Hud } from '../ui/Hud.js';
 import { Fx } from '../ui/Fx.js';
 import { AimController } from '../ui/AimController.js';
@@ -13,11 +14,13 @@ import { font, UI } from '../ui/theme.js';
 import { WEAPONS } from '../weapons/index.js';
 import { captureCommand } from '../net/protocol.js';
 import { NetSession } from '../net/session.js';
-import { ChannelTransport, SupabaseTransport, randomRoom, copyText } from '../net/transport.js';
-import { supabaseConfig, loadCreateClient } from '../net/supabase.js';
+import { randomRoom, copyText } from '../net/transport.js';
+import { makeTransport } from '../net/connect.js';
+import { startRoom, shareRoom, haptic } from '../platform/telegram.js';
 import { HOTSEAT } from '../core/match.js';
 import { Bot } from '../ai/Bot.js';
 import { markDone } from '../campaign/missions.js';
+import { player, eloDelta, recordResult } from '../platform/player.js';
 import { OffscreenMarkers } from '../ui/OffscreenMarkers.js';
 import { CameraRig } from '../ui/CameraRig.js';
 
@@ -42,6 +45,7 @@ export default class GameScene extends Phaser.Scene {
     this.worms = [];
     this.projectiles = [];
     this.crates = [];
+    this.mines = [];
     this.followTarget = null;
     this.moveInput = {
       left: false, right: false, jumpQueued: false,
@@ -162,7 +166,7 @@ export default class GameScene extends Phaser.Scene {
    * локальный хотсит, никакой сети и никаких подключений.
    */
   _setupNet() {
-    const room = new URLSearchParams(location.search).get('room');
+    const room = startRoom();
     if (!room) return;
     this.room = room;
 
@@ -177,7 +181,7 @@ export default class GameScene extends Phaser.Scene {
     }
 
     this._netStatus('подключаемся…');
-    this._makeTransport().then((transport) => {
+    makeTransport().then((transport) => {
       this.net = new NetSession(this, transport, room);
       this.net.onStatus = (text) => this._netStatus(text);
       this.registry.set('net', this.net);
@@ -191,23 +195,6 @@ export default class GameScene extends Phaser.Scene {
       this.net?.destroy();
       this.net = null;
       this.registry.set('net', null);
-    });
-  }
-
-  /**
-   * Через интернет — Supabase Realtime, если заданы ключи; иначе игра
-   * работает между вкладками одного браузера. Второе не заглушка: так
-   * реально можно сыграть вдвоём за одним компьютером.
-   */
-  async _makeTransport() {
-    // Транспорт можно навязать снаружи — этим пользуются тесты и этим же
-    // подключится свой сервер, если он когда-нибудь понадобится
-    if (globalThis.WORMS_TRANSPORT) return globalThis.WORMS_TRANSPORT();
-    const cfg = supabaseConfig();
-    if (!cfg) return new ChannelTransport();
-    const createClient = await loadCreateClient(cfg.lib);
-    return new SupabaseTransport({
-      url: cfg.url, keys: [cfg.anonKey, cfg.legacyKey], createClient,
     });
   }
 
@@ -242,6 +229,8 @@ export default class GameScene extends Phaser.Scene {
   shareInvite() {
     if (this.room) {
       const link = this.inviteLink();
+      // В Telegram зовём родным выбором контакта, снаружи — буфером обмена
+      if (shareRoom(this.room, link)) return link;
       copyText(link);
       this.fx.banner(`ссылка скопирована · комната ${this.room}`, '#ffd166', 2600);
       return link;
@@ -468,6 +457,10 @@ export default class GameScene extends Phaser.Scene {
     for (const w of this.worms) w.update(dt);
 
     for (const c of this.crates) c.update(dt);
+    for (const m of this.mines) m.update(dt);
+    if (this.mines.some((m) => !m.alive)) {
+      this.mines = this.mines.filter((m) => m.alive);
+    }
     this._collectCrates();
     if (this.crates.some((c) => !c.alive)) {
       this.crates = this.crates.filter((c) => c.alive);
@@ -771,6 +764,15 @@ export default class GameScene extends Phaser.Scene {
       if (c.alive && Math.hypot(c.x - x, c.y - c.h / 2 - y) <= cfg.damageRadius) c.destroy();
     }
 
+    // Мина рядом со взрывом детонирует — так получаются цепочки.
+    // Подрываем через таймер, а не тут же: рекурсия из explode в explode
+    // на длинной цепочке ушла бы в стек.
+    for (const m of this.mines) {
+      if (!m.alive || Math.hypot(m.x - x, m.y - y) > cfg.damageRadius) continue;
+      m.fuse = 0.12;
+      m.armed = true;
+    }
+
     for (const w of this.worms) {
       if (!w.alive) continue;
       const wx = w.x, wy = w.centerY;
@@ -786,6 +788,24 @@ export default class GameScene extends Phaser.Scene {
 
       w.damage(dmg, 'взрыв');
     }
+  }
+
+  /**
+   * След мгновенного выстрела: у дробовика и биты снаряда нет, и без
+   * линии игрок не понимает, куда вообще пришёлся удар.
+   */
+  drawBeam(x0, y0, x1, y1, color = 0xffe066) {
+    const g = this.rig.world(this.add.graphics().setDepth(DEPTH.PROJECTILE));
+    g.lineStyle(3, color, 0.9).lineBetween(x0, y0, x1, y1);
+    g.lineStyle(9, color, 0.25).lineBetween(x0, y0, x1, y1);
+    this.tweens.add({
+      targets: g, alpha: 0, duration: 260, onComplete: () => g.destroy(),
+    });
+  }
+
+  /** Поставить мину. Оружие само её не хранит — предмет живёт в сцене. */
+  addMine(x, y, weapon, owner) {
+    this.mines.push(new Mine(this, x, y, weapon, owner));
   }
 
   /** Ход отыгран и очередь передана — отдаём второму игроку итог. */
@@ -841,6 +861,16 @@ export default class GameScene extends Phaser.Scene {
 
     if (this.match.mode === 'campaign' && winner === mine) markDone(this.match.missionId);
 
+    // Рейтинг двигается только в сетевом бою: против бота и в хотсите
+    // очков не бывает, иначе их можно было бы «нафармить» о самого себя.
+    let ratingLine = '';
+    if (this.net?.connected && winner >= 0 && this.net.opponent) {
+      const me = player();
+      const delta = eloDelta(me.rating, this.net.opponent.rating, winner === mine);
+      const after = recordResult(winner === mine, delta);
+      ratingLine = `рейтинг ${after.rating} (${delta >= 0 ? '+' : ''}${delta})`;
+    }
+
     const shade = this.rig.ui(this.add.rectangle(0, 0, CFG.VIEW_W, CFG.VIEW_H, 0x070b14, 0.55)
       .setOrigin(0, 0).setScrollFactor(0).setDepth(DEPTH.HUD + 10));
     const title = this.add.text(CFG.VIEW_W / 2, CFG.VIEW_H / 2 - 28, text,
@@ -850,7 +880,12 @@ export default class GameScene extends Phaser.Scene {
     // В сети рестарт врозь развалил бы синхронность, поэтому там оба
     // возвращаются в лобби; в кампании — к списку миссий.
     const backToMenu = this.match.mode !== 'quick';
-    const sub = this.add.text(CFG.VIEW_W / 2, CFG.VIEW_H / 2 + 32,
+    if (ratingLine) {
+      this.rig.ui(this.add.text(CFG.VIEW_W / 2, CFG.VIEW_H / 2 + 12, ratingLine,
+        font(20, 800, UI.accent)).setOrigin(0.5).setScrollFactor(0)
+        .setDepth(DEPTH.HUD + 11));
+    }
+    const sub = this.add.text(CFG.VIEW_W / 2, CFG.VIEW_H / 2 + (ratingLine ? 52 : 32),
       backToMenu ? 'тап — в меню' : 'тап или R — новая карта',
       font(18, 700, UI.textDim))
       .setOrigin(0.5).setScrollFactor(0).setDepth(DEPTH.HUD + 11);
@@ -878,6 +913,7 @@ export default class GameScene extends Phaser.Scene {
 
   _shutdown() {
     this.game.events.off('worms-resize', this.relayout, this);
+    this.mines = [];
     this.aim?.destroy();
     this.crates = [];
     this.rig?.destroy();

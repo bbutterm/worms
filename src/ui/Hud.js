@@ -2,6 +2,7 @@ import { CFG, DEPTH, TEAM_COLORS, TEAM_NAMES } from '../config.js';
 import { WEAPONS } from '../weapons/index.js';
 import { has as hasAsset } from '../core/assets.js';
 import { UI, font, ensureButton, ensureRoundButton, ensureIcon } from './theme.js';
+import { Inventory } from './Inventory.js';
 
 const TOP_H = 62;
 
@@ -33,6 +34,8 @@ export class Hud {
       return scene.rig.ui(o.setScrollFactor(0).setDepth(d));
     };
 
+    // Инвентарь создаётся до плашки оружия: она его открывает
+    this.inventory = new Inventory(scene);
     this._buildTopBar(W);
     this._buildWeapons(W, H);
     this._buildControls(W, H);
@@ -114,39 +117,33 @@ export class Hud {
 
   // --------------------------------------------------------------- оружие
 
+  /**
+   * Плашка текущего оружия. Раньше тут лежал ряд из всех стволов, но с
+   * дюжиной он перестал влезать и наезжал на кнопки. Теперь видно одно —
+   * то, чем стреляешь, — а весь арсенал открывается тапом по нему.
+   */
   _buildWeapons(W, H) {
     const s = this.scene;
-    const bw = 88, bh = 54, gap = 10;
-    const total = WEAPONS.length * bw + (WEAPONS.length - 1) * gap;
-    let bx = Math.round((W - total) / 2);
+    const bw = 214, bh = 58;
+    const bx = Math.round((W - bw) / 2);
     const by = H - bh - 12;
 
-    ensureButton(s, 'ui-weapon', bw, bh, 'normal');
-    ensureButton(s, 'ui-weapon-on', bw, bh, 'active');
+    ensureButton(s, 'ui-weapon-slot', bw, bh, 'active');
+    const plate = this.fix(s.add.image(bx + bw / 2, by + bh / 2, 'ui-weapon-slot'));
+    plate.setInteractive({ useHandCursor: true });
+    this._register(plate, () => this.inventory?.toggle(), null);
 
-    for (let i = 0; i < WEAPONS.length; i++) {
-      const weapon = WEAPONS[i];
-      const plate = this.fix(s.add.image(bx + bw / 2, by + bh / 2, 'ui-weapon'));
-      plate.setInteractive({ useHandCursor: true });
-      plate.on('pointerdown', () => { this._press(plate); s.turn.setWeaponIndex(i); });
-      plate.on('pointerup', () => this._unpress(plate));
-      plate.on('pointerout', () => this._unpress(plate));
-
-      const icon = hasAsset(s, weapon.iconKey)
-        ? this.fix(s.add.image(bx + bw / 2, by + 19, weapon.iconKey).setOrigin(0.5), DEPTH.HUD + 1)
-        : this.fix(s.add.text(bx + bw / 2, by + 8, weapon.icon, font(18, 800))
-          .setOrigin(0.5, 0), DEPTH.HUD + 1);
-      const name = this.fix(s.add.text(bx + bw / 2, by + 36, weapon.name,
-        font(11, 700, UI.textDim)).setOrigin(0.5, 0), DEPTH.HUD + 1);
-      this.fix(s.add.text(bx + 7, by + 3, `${i + 1}`,
-        font(10, 700, UI.textDim)).setOrigin(0, 0), DEPTH.HUD + 1);
-      const ammo = this.fix(s.add.text(bx + bw - 7, by + 3, '',
-        font(11, 800, UI.accent)).setOrigin(1, 0), DEPTH.HUD + 1);
-
-      this.weaponButtons.push({ plate, icon, name, ammo });
-      this.uiRects.push({ x: bx, y: by, w: bw, h: bh });
-      bx += bw + gap;
-    }
+    this.slot = {
+      plate,
+      icon: this.fix(s.add.image(bx + 32, by + bh / 2, 'icon_bazooka')
+        .setOrigin(0.5), DEPTH.HUD + 1),
+      name: this.fix(s.add.text(bx + 60, by + 12, '', font(16, 800, '#2a1c06')), DEPTH.HUD + 1),
+      ammo: this.fix(s.add.text(bx + 60, by + 33, '', font(12, 700, '#5a4413')), DEPTH.HUD + 1),
+      hint: this.fix(s.add.text(bx + bw - 10, by + 8, 'арсенал',
+        font(10, 700, '#5a4413')).setOrigin(1, 0), DEPTH.HUD + 1),
+      x: bx, y: by, w: bw, h: bh,
+    };
+    this.uiRects.push({ x: bx, y: by, w: bw, h: bh });
   }
 
   // --------------------------------------------------------------- кнопки
@@ -376,6 +373,8 @@ export class Hud {
 
   /** Снести интерфейс целиком — перед пересборкой под новый размер экрана. */
   destroy() {
+    this.inventory?.destroy();
+    this.inventory = null;
     this.scene.input.off('pointerup', this._releaseAll, this);
     this.scene.input.off('pointerupoutside', this._releaseAll, this);
     if (this._closeHelp) this.scene.input.off('pointerdown', this._closeHelp);
@@ -394,6 +393,7 @@ export class Hud {
     const px = pointer.x, py = pointer.y;
     if (py < TOP_H) return true;
     if (this.helpVisible) return true;   // подсказка перекрывает всё поле
+    if (this.inventory?.isOpen) return true;   // и арсенал тоже
     for (const r of this.uiRects) {
       // Круглые кнопки и проверяются по кругу: по прямоугольнику углы
       // «Огня» и «Прыжка» задевали бы соседа, которого там нет.
@@ -408,15 +408,16 @@ export class Hud {
   }
 
   setWeaponIndex(i) {
-    for (let k = 0; k < this.weaponButtons.length; k++) {
-      const b = this.weaponButtons[k];
-      const on = k === i;
-      b.plate.setTexture(on ? 'ui-weapon-on' : 'ui-weapon');
-      b.name.setColor(on ? '#2a1c06' : UI.textDim);
-      if (b.icon.setColor) b.icon.setColor(on ? '#2a1c06' : UI.text);
-      else b.icon.setAlpha(on ? 1 : 0.6);
+    const w = WEAPONS[i];
+    if (!w || !this.slot) return;
+    this.slot.name.setText(w.name);
+    if (hasAsset(this.scene, w.iconKey)) {
+      this.slot.icon.setTexture(w.iconKey).setVisible(true);
+    } else {
+      this.slot.icon.setVisible(false);
     }
   }
+
 
   update() {
     const scene = this.scene;
@@ -498,16 +499,15 @@ export class Hud {
   }
 
   _updateAmmo(turn) {
-    for (let i = 0; i < WEAPONS.length; i++) {
-      const n = turn.ammoOf ? turn.ammoOf(i) : Infinity;
-      const b = this.weaponButtons[i];
-      b.ammo.setText(Number.isFinite(n) ? `${n}` : '∞');
-      // На выбранной плашке фон янтарный — акцентный цвет на нём не читается
-      const on = this.scene.turn.weaponIndex === i;
-      b.ammo.setColor(n === 0 ? '#ff7b7b' : on ? '#2a1c06' : UI.accent);
-      b.plate.setAlpha(n === 0 ? 0.5 : 1);
-    }
+    if (!this.slot) return;
+    const i = turn.weaponIndex;
+    const n = turn.ammoOf ? turn.ammoOf(i) : Infinity;
+    const shots = turn.shotsLeft > 1 ? ` · выстрелов ${turn.shotsLeft}` : '';
+    this.slot.ammo.setText(
+      (Number.isFinite(n) ? `патронов ${n}` : 'патронов ∞') + shots,
+    );
   }
+
 }
 
 function hex(n) {

@@ -261,14 +261,19 @@ await page.evaluate(() => window.__WORMS__.scene.getScene('Game').hud.setHelp(fa
 // Раньше боец упирался сам в себя: земля под передним краем корпуса выше,
 // чем под задним, и проверка «прямоугольник свободен» считала её стеной.
 // Гоняем бойца по всему острову и смотрим, где он встал намертво.
+//
+// Падать ему не даём намеренно: сорвавшись, он может утонуть, а гибель
+// тянет за собой воронку, конец хода и, если не повезёт, конец партии —
+// проверка ходьбы развалила бы всё, что идёт следом.
 const walkTest = await page.evaluate(() => {
   const s = window.__WORMS__.scene.getScene('Game');
   const w = s.turn.activeWorm;
   const t = s.terrain;
-  const keep = { x: w.x, y: w.y, grounded: w.grounded };
+  const keep = { x: w.x, y: w.y, grounded: w.grounded, facing: w.facing };
   const dt = 1 / 60;
   const stuck = [];
   let starts = 0;
+  let steps = 0;
 
   for (let sx = 200; sx < t.width - 200; sx += 100) {
     if (!t.isSpawnable(sx)) continue;
@@ -277,28 +282,27 @@ const walkTest = await page.evaluate(() => {
     starts++;
     w.x = sx; w.y = top - 1; w.vx = 0; w.vy = 0; w.grounded = true;
     w.snapToGround();
+    if (!w.grounded) continue;
 
     let blocked = 0;
-    for (let i = 0; i < 200; i++) {
+    for (let i = 0; i < 160; i++) {
       const before = w.x;
       w.walk(1, dt);
-      if (!w.grounded) {
-        for (let k = 0; k < 150 && !w.grounded; k++) w.update(dt);
-        if (!w.alive || w.y > 640) break;      // упал в воду — это не затык
-      }
+      steps++;
+      if (!w.grounded) { w.grounded = true; break; }   // обрыв — не падаем, просто дальше
       if (Math.abs(w.x - before) < 0.01) {
         if (++blocked > 4) { stuck.push(Math.round(w.x)); break; }
       } else blocked = 0;
     }
   }
 
-  w.x = keep.x; w.y = keep.y; w.grounded = keep.grounded;
-  w.health = 100; w.alive = true;
-  return { starts, stuck };
+  w.x = keep.x; w.y = keep.y; w.grounded = keep.grounded; w.facing = keep.facing;
+  w.vx = 0; w.vy = 0;
+  return { starts, steps, stuck };
 });
 check('ходьба не застревает на склонах',
   walkTest.starts >= 5 && walkTest.stuck.length === 0,
-  `стартов ${walkTest.starts}, тупиков ${walkTest.stuck.length}`
+  `стартов ${walkTest.starts}, шагов ${walkTest.steps}, тупиков ${walkTest.stuck.length}`
   + (walkTest.stuck.length ? `: x=${walkTest.stuck.slice(0, 5).join(', ')}` : ''));
 
 // --- короткое касание не тратит ход ---

@@ -24,6 +24,15 @@ export const IMAGES = {
   icon_grenade: 'assets/icon_grenade.png',
   icon_cluster: 'assets/icon_cluster.png',
   icon_mole: 'assets/icon_mole.png',
+  icon_banana: 'assets/icon_banana.png',
+  icon_holy: 'assets/icon_holy.png',
+  icon_dynamite: 'assets/icon_dynamite.png',
+  icon_mine: 'assets/icon_mine.png',
+  icon_airstrike: 'assets/icon_airstrike.png',
+  icon_shotgun: 'assets/icon_shotgun.png',
+  icon_bat: 'assets/icon_bat.png',
+  icon_teleport: 'assets/icon_teleport.png',
+  icon_mortar: 'assets/icon_mortar.png',
 };
 
 /** Текстуры ландшафта: по четыре файла на каждую тему из biomes.js. */
@@ -55,6 +64,14 @@ export const SHEETS = {
   proj_cluster: { anims: { proj_cluster: { frameRate: 24, repeat: -1 } } },
   proj_bomblet: { anims: { proj_bomblet: { frameRate: 16, repeat: -1 } } },
   proj_mole: { anims: { proj_mole: { frameRate: 16, repeat: -1 } } },
+  proj_banana: { anims: { proj_banana: { frameRate: 24, repeat: -1 } } },
+  proj_holy: { anims: { proj_holy: { frameRate: 20, repeat: -1 } } },
+  proj_dynamite: { anims: { proj_dynamite: { frameRate: 14, repeat: -1 } } },
+  proj_mortar: { anims: { proj_mortar: { frameRate: 24, repeat: -1 } } },
+  proj_airmissile: { rotational: true },
+  // Мина: два состояния, не анимация — спокойная и заведённая
+  proj_mine: {},
+  proj_mine_on: { anims: { proj_mine_on: { frameRate: 12, repeat: -1 } } },
 
   fx_flash: {},
   fx_smoke: { anims: { fx_smoke: { frameRate: 30, repeat: 0 } } },

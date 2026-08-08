@@ -1,5 +1,7 @@
 import { CFG } from '../config.js';
 import { Crate } from '../entities/Crate.js';
+import { Mine } from '../entities/Mine.js';
+import { WEAPONS_BY_ID } from '../weapons/index.js';
 
 /**
  * Формат обмена для сетевой игры.
@@ -83,6 +85,13 @@ export function captureState(scene) {
     crates: scene.crates
       .filter((c) => c.alive)
       .map((c) => ({ x: Math.round(c.x), y: Math.round(c.y), kind: c.kind, landed: c.landed })),
+    // Мины переживают ход, поэтому едут в снимке наравне с ящиками
+    mines: (scene.mines ?? [])
+      .filter((m) => m.alive)
+      .map((m) => ({
+        x: Math.round(m.x), y: Math.round(m.y),
+        weapon: m.weapon.id, armed: m.armed, owner: scene.worms.indexOf(m.owner),
+      })),
   };
 }
 
@@ -128,6 +137,15 @@ export function applyState(scene, state) {
     crate.y = c.y;
     if (c.landed) crate._land();
     return crate;
+  });
+
+  // Мины пересобираем так же, как ящики: их состав меняется по ходу партии
+  for (const m of scene.mines ?? []) m.destroy();
+  scene.mines = (state.mines ?? []).map((m) => {
+    const mine = new Mine(scene, m.x, m.y,
+      WEAPONS_BY_ID[m.weapon] ?? WEAPONS_BY_ID.mine, scene.worms[m.owner] ?? null);
+    if (m.armed) { mine.armed = true; mine.armTimer = 0; }
+    return mine;
   });
 
   scene.replaying = false;

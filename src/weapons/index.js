@@ -1,4 +1,4 @@
-import { Weapon, ClusterWeapon } from './Weapon.js';
+import { Weapon, ClusterWeapon, PlacedWeapon, InstantWeapon, BatWeapon, MineWeapon } from './Weapon.js';
 
 /**
  * Реестр оружия. Порядок = порядок кнопок в HUD и клавиш 1..N.
@@ -18,6 +18,17 @@ const BOMBLET = new Weapon({
   spriteKey: 'proj_bomblet',
   projectile: { radius: 3, windScale: 0.6, trail: false },
   explosion: { radius: 22, damageRadius: 40, damage: 18, knockback: 190, shake: 0.003 },
+});
+
+/** Осколок мортиры: мельче кассетного, но их больше и летят они вниз. */
+const SHARD = new Weapon({
+  id: 'shard',
+  name: 'Осколок',
+  icon: '·',
+  color: 0xffd39b,
+  spriteKey: 'proj_bomblet',
+  projectile: { radius: 3, windScale: 0.4, trail: false },
+  explosion: { radius: 18, damageRadius: 34, damage: 14, knockback: 150, shake: 0.002 },
 });
 
 export const WEAPONS = [
@@ -76,6 +87,114 @@ export const WEAPONS = [
       digRadius: 9, digTime: 0.55,
     },
     explosion: { radius: 52, damageRadius: 78, damage: 40, knockback: 260, shake: 0.008 },
+  }),
+
+  // Банан прыгуч до неприличия: попасть им — вопрос чтения рельефа,
+  // зато прилетает больно.
+  new Weapon({
+    id: 'banana',
+    name: 'Банан',
+    icon: '⌒',
+    color: 0xf7e14a,
+    spriteKey: 'proj_banana',
+    iconKey: 'icon_banana',
+    startAmmo: 1,
+    crateAmmo: 1,
+    projectile: {
+      radius: 5, windScale: 0.4, bounciness: 0.72, friction: 0.86, fuse: 4,
+    },
+    explosion: { radius: 58, damageRadius: 105, damage: 72, knockback: 470, shake: 0.011 },
+  }),
+
+  // Святая граната: три секунды ожидания и очень большая воронка.
+  // Дорогая по патронам намеренно — это оружие «на один раз».
+  new Weapon({
+    id: 'holy',
+    name: 'Святая',
+    icon: '✚',
+    color: 0xffe9a8,
+    spriteKey: 'proj_holy',
+    iconKey: 'icon_holy',
+    startAmmo: 0,
+    crateAmmo: 1,
+    projectile: {
+      radius: 7, windScale: 0.3, bounciness: 0.45, friction: 0.7, fuse: 3,
+    },
+    explosion: { radius: 88, damageRadius: 150, damage: 95, knockback: 620, shake: 0.02 },
+  }),
+
+  // Динамит кладётся под ноги: сила заряда не важна, важно успеть отойти.
+  new PlacedWeapon({
+    id: 'dynamite',
+    name: 'Динамит',
+    icon: '❚',
+    color: 0xff6b4a,
+    spriteKey: 'proj_dynamite',
+    iconKey: 'icon_dynamite',
+    category: 'снаряжение',
+    startAmmo: 1,
+    projectile: {
+      radius: 6, windScale: 0, drag: 4, fuse: 4, trail: false,
+    },
+    explosion: { radius: 72, damageRadius: 120, damage: 85, knockback: 520, shake: 0.016 },
+  }),
+
+  // Мортира бьёт слабее базуки, но осыпает осколками сверху — хороша
+  // против тех, кто прячется за холмом.
+  new ClusterWeapon({
+    id: 'mortar',
+    name: 'Мортира',
+    icon: '◭',
+    color: 0x9fd2ff,
+    spriteKey: 'proj_mortar',
+    iconKey: 'icon_mortar',
+    startAmmo: 2,
+    projectile: { radius: 5, windScale: 0.7, gravityScale: 1.1 },
+    explosion: { radius: 24, damageRadius: 44, damage: 20, knockback: 170, shake: 0.004 },
+    clusterCount: 6,
+    clusterSpeed: 200,
+    bombletWeapon: SHARD,
+  }),
+
+  // Дробовик: два выстрела за ход, попадание считается сразу. Ветер и
+  // дальность на него не влияют — это оружие ближней перестрелки.
+  new InstantWeapon({
+    id: 'shotgun',
+    name: 'Дробовик',
+    icon: '⋙',
+    color: 0xffcf7a,
+    iconKey: 'icon_shotgun',
+    category: 'стрелковое',
+    startAmmo: 2,
+    shots: 2,
+    range: 700,
+    explosion: { radius: 16, damageRadius: 34, damage: 26, knockback: 190, shake: 0.003 },
+  }),
+
+  // Мина остаётся лежать между ходами — единственное оружие, которое
+  // работает, когда твой ход уже прошёл.
+  new MineWeapon({
+    id: 'mine',
+    name: 'Мина',
+    icon: '◉',
+    color: 0xb04040,
+    iconKey: 'icon_mine',
+    category: 'снаряжение',
+    startAmmo: 2,
+    explosion: { radius: 46, damageRadius: 84, damage: 50, knockback: 380, shake: 0.008 },
+  }),
+
+  // Бита: земля цела, зато сосед летит. Дешёвый способ утопить.
+  new BatWeapon({
+    id: 'bat',
+    name: 'Бита',
+    icon: '↷',
+    color: 0xc98b5a,
+    iconKey: 'icon_bat',
+    category: 'ближний бой',
+    startAmmo: 1,
+    range: 60,
+    explosion: { radius: 0, damageRadius: 46, damage: 24, knockback: 700, shake: 0.004 },
   }),
 ];
 

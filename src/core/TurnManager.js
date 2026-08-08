@@ -20,6 +20,7 @@ export class TurnManager {
     this.flyTimer = 0;
     this.holdTimer = 0;     // сколько ждём ход соперника
     this.weaponIndex = 0;
+    this.shotsLeft = 1;     // сколько выстрелов осталось этим ходом
     this.teamCursor = new Array(CFG.TEAMS).fill(0);
     this.turnNumber = 0;
     // Патроны общие на команду, как в оригинале
@@ -51,6 +52,7 @@ export class TurnManager {
     if (i < 0 || i >= WEAPONS.length) return;
     if (this.ammoOf(i) <= 0) return;      // пустое оружие не выбирается
     this.weaponIndex = i;
+    this.shotsLeft = WEAPONS[i].shots;
     this.scene.hud.setWeaponIndex(i);
   }
 
@@ -101,6 +103,7 @@ export class TurnManager {
       const ok = WEAPONS.findIndex((w, i) => this.ammoOf(i) > 0);
       this.weaponIndex = ok >= 0 ? ok : 0;
     }
+    this.shotsLeft = this.weapon.shots;
     this.scene.hud.setWeaponIndex(this.weaponIndex);
 
     // Случайность хода — функция от (зерно, номер хода), а не общий поток:
@@ -142,6 +145,7 @@ export class TurnManager {
     this.state = STATE.AIM;
 
     this.weaponIndex = info.weapon ?? this.weaponIndex;
+    this.shotsLeft = this.weapon.shots;
     this.scene.hud.setWeaponIndex(this.weaponIndex);
 
     // Ящики и ветер приходят снимком, поэтому здесь только поток случайности
@@ -183,13 +187,31 @@ export class TurnManager {
     return null;
   }
 
-  /** Вызывается сценой сразу после выстрела: ход уже не вернуть. */
+  /**
+   * Вызывается сценой сразу после выстрела: ход уже не вернуть.
+   *
+   * У дробовика два выстрела за ход. Патрон списывается один раз, за
+   * первый: иначе не выстрелив второй раз (кончилось время), игрок терял
+   * бы боезапас впустую. Задержаться в прицеливании можно только с
+   * мгновенным оружием — снаряда в воздухе нет, ждать нечего.
+   */
   onFired() {
-    this.spendAmmo();
+    const weapon = this.weapon;
+    const first = this.shotsLeft === weapon.shots;
+    if (first) this.spendAmmo();
+    this.shotsLeft = Math.max(0, this.shotsLeft - 1);
+    this.scene.cancelCharge();
+
+    if (this.shotsLeft > 0 && weapon.instant) {
+      // Второй выстрел того же хода: даём на него хотя бы несколько секунд
+      this.timeLeft = Math.max(this.timeLeft, 6);
+      this.scene.fx.banner(`ещё выстрел: ${this.shotsLeft}`, '#ffd166', 900);
+      return;
+    }
+
     this.state = STATE.FLYING;
     this.flyTimer = 0;
     this.activeWorm?.setActiveMarker(false);
-    this.scene.cancelCharge();
   }
 
   /** Досрочно завершить ход (таймер, смерть активного бойца). */

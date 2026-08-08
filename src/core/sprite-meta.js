@@ -57,6 +57,41 @@ export const SPRITE_META = {
     "frameHeight": 30,
     "frames": 10
   },
+  "proj_banana": {
+    "frameWidth": 26,
+    "frameHeight": 26,
+    "frames": 32
+  },
+  "proj_holy": {
+    "frameWidth": 34,
+    "frameHeight": 34,
+    "frames": 32
+  },
+  "proj_dynamite": {
+    "frameWidth": 40,
+    "frameHeight": 40,
+    "frames": 20
+  },
+  "proj_mine": {
+    "frameWidth": 14,
+    "frameHeight": 14,
+    "frames": 12
+  },
+  "proj_mine_on": {
+    "frameWidth": 14,
+    "frameHeight": 14,
+    "frames": 12
+  },
+  "proj_airmissile": {
+    "frameWidth": 22,
+    "frameHeight": 22,
+    "frames": 32
+  },
+  "proj_mortar": {
+    "frameWidth": 24,
+    "frameHeight": 24,
+    "frames": 32
+  },
   "fx_flash": {
     "frameWidth": 195,
     "frameHeight": 193,

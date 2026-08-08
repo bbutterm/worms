@@ -2,6 +2,9 @@ import { UI, font, ensureButton } from '../ui/theme.js';
 import { MISSIONS, loadProgress, isUnlocked } from '../campaign/missions.js';
 import { quickMatch, campaignMatch, onlineMatch } from '../core/match.js';
 import { randomRoom, copyText } from '../net/transport.js';
+import { Lobby } from '../net/lobby.js';
+import { makeTransport } from '../net/connect.js';
+import { player, setName, rankName } from '../platform/player.js';
 import { BOT_LEVELS } from '../ai/Bot.js';
 
 /**
@@ -234,17 +237,113 @@ export default class MenuScene extends Phaser.Scene {
   showOnline() {
     this.section = this.showOnline;
     this._clear();
-    this._title('Онлайн', 'вдвоём через интернет, по коду комнаты');
+    const me = player();
+    this._title('Онлайн', `${me.name} · ${me.rating} · ${rankName(me.rating)}`);
     const cx = this.W / 2;
-    const y0 = 196, step = 80;
+
+    // Профиль: имя можно поменять, если игра открыта не в Telegram —
+    // там имя и так своё, и подменять его незачем.
+    if (!me.telegram) {
+      this._button('rename', cx, 150, 'Сменить имя', '', () => {
+        const v = globalThis.prompt?.('Имя в бою:', me.name);
+        if (v) { setName(v); this.showOnline(); }
+      }, { w: 260, h: 46 });
+    }
+    this.items.push(this.add.text(cx, 186,
+      `побед ${me.wins} · поражений ${me.losses}`, font(12, 700, UI.textDim))
+      .setOrigin(0.5, 0));
+
+    const y0 = 226, step = 74;
+    this._button('quickmatch', cx, y0, 'Быстрый бой', 'подобрать соперника по рейтингу',
+      () => this.startSearch(), { variant: 'primary' });
+    this._button('friend', cx, y0 + step, 'Играть с другом', 'по коду комнаты',
+      () => this.showFriend());
+    this.items.push(this.add.text(cx, y0 + step * 2 - 8, this.lobbyNote ?? '',
+      font(12, 700, UI.textDim)).setOrigin(0.5, 0));
+
+    this._back();
+    this._ensureLobby();
+  }
+
+  /** Раздел «с другом» — то, что раньше было всем разделом «онлайн». */
+  showFriend() {
+    this.section = this.showFriend;
+    this._clear();
+    this._title('Игра с другом', 'по коду комнаты');
+    const cx = this.W / 2;
+    const y0 = 200, step = 80;
 
     this._button('create', cx, y0, 'Создать комнату', 'код и ссылка для друга',
       () => this.showRoom(randomRoom()), { variant: 'primary' });
     this._button('join', cx, y0 + step, 'Войти по коду', 'если код прислали тебе',
       () => this.askCode());
-    this.items.push(this.add.text(cx, y0 + step * 2 + 6,
-      'первым ходит тот, кто создал комнату', font(12, 700, UI.textDim)).setOrigin(0.5, 0));
-    this._back();
+    this._back(() => this.showOnline());
+  }
+
+  /**
+   * Лобби живёт, пока открыто меню: подключаемся один раз и держим —
+   * иначе список игроков собирался бы заново на каждом переходе.
+   */
+  async _ensureLobby() {
+    if (this.lobby || this.lobbyStarting) return;
+    this.lobbyStarting = true;
+    try {
+      this.lobby = new Lobby(await makeTransport());
+      this.lobby.onChange = (list) => this._showPlayers(list);
+      this.lobby.onMatch = (room, opponent) => {
+        this.lobbyNote = opponent ? `соперник: ${opponent.name}` : '';
+        this.startOnline(room);
+      };
+      await this.lobby.start();
+    } catch (e) {
+      console.warn('[лобби] не поднялось', e);
+      this.lobbyNote = 'сеть недоступна — играть можно по коду комнаты';
+      if (this.section === this.showOnline) this.showOnline();
+    } finally {
+      this.lobbyStarting = false;
+    }
+  }
+
+  /** Список тех, кто сейчас в лобби. Тап по строке — позвать в бой. */
+  _showPlayers(list) {
+    if (this.section !== this.showOnline && this.section !== this.startSearch) return;
+    for (const o of this.playerRows ?? []) o.destroy();
+    this.playerRows = [];
+
+    const x = this.W - 250;
+    const head = this.add.text(x, 120, `в сети: ${list.length + 1}`,
+      font(13, 800, UI.accent)).setOrigin(0, 0);
+    this.playerRows.push(head);
+
+    list.slice(0, 7).forEach((p, i) => {
+      const y = 148 + i * 30;
+      const row = this.add.text(x, y,
+        `${p.name} · ${p.rating}${p.state === 'searching' ? ' · ищет' : ''}`,
+        font(13, 700, p.state === 'searching' ? UI.text : UI.textDim)).setOrigin(0, 0);
+      row.setInteractive({ useHandCursor: true });
+      row.on('pointerdown', () => this.lobby?.invite(p.id));
+      this.playerRows.push(row);
+    });
+    // Строки живут отдельно от items: список обновляется чаще, чем раздел
+    for (const o of this.playerRows) this.items.push(o);
+  }
+
+  /** Поиск боя: ждём, пока лобби сведёт нас с кем-нибудь. */
+  startSearch() {
+    this.section = this.startSearch;
+    this._clear();
+    this._title('Ищем соперника…', 'бой начнётся сам, как только кто-то найдётся');
+    const cx = this.W / 2;
+    this.items.push(this.add.text(cx, 210,
+      'Можно свернуть игру — поиск продолжится, пока открыт этот экран.',
+      font(13, 700, UI.textDim)).setOrigin(0.5, 0));
+    this._button('cancel', cx, 300, 'Отменить поиск', '', () => {
+      this.lobby?.search(false);
+      this.showOnline();
+    }, { w: 300, h: 56 });
+    this._ensureLobby();
+    this.lobby?.search(true);
+    if (this.lobby) this._showPlayers(this.lobby.list());
   }
 
   askCode() {

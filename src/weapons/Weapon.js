@@ -18,6 +18,14 @@ export class Weapon {
     // null = бесконечно (базука), число = стартовый запас на команду
     this.startAmmo = cfg.startAmmo ?? null;
     this.crateAmmo = cfg.crateAmmo ?? 2;   // сколько даёт ящик
+    // Раздел в инвентаре: с четырьмя стволами хватало одного ряда,
+    // с дюжиной нужны полки
+    this.category = cfg.category ?? 'взрывное';
+    // Сколько выстрелов даёт один ход. У дробовика два, ход после первого
+    // не заканчивается.
+    this.shots = cfg.shots ?? 1;
+    // Мгновенное оружие: попадание считается лучом сразу, снаряда нет
+    this.instant = cfg.instant ?? false;
     // Кадры спрайтшита — предрассчитанные повороты, а не анимация
     this.rotational = cfg.rotational ?? false;
 
@@ -57,6 +65,100 @@ export class Weapon {
   onDetonate(scene, projectile, x, y) {
     scene.explode(x, y, this.explosion, projectile.owner);
     return null;
+  }
+}
+
+/**
+ * Мгновенное оружие: дробовик, бита.
+ *
+ * Снаряда нет вовсе — попадание считается лучом в тот же кадр. Луч идёт
+ * шагами по 2 px и останавливается на первом, что встретит: чужом бойце
+ * или земле. Своего стрелка пропускаем — ствол начинается внутри него.
+ *
+ * Возвращает пустой список снарядов, и это важно: сцена по нему поймёт,
+ * что ждать нечего, и сразу перейдёт к разбору хода.
+ */
+export class InstantWeapon extends Weapon {
+  constructor(cfg) {
+    super({ ...cfg, instant: true });
+    this.range = cfg.range ?? 600;
+  }
+
+  fire(scene, x, y, vx, vy, owner) {
+    const len = Math.hypot(vx, vy) || 1;
+    const dx = vx / len, dy = vy / len;
+
+    let hx = x, hy = y;
+    for (let d = 0; d <= this.range; d += 2) {
+      hx = x + dx * d;
+      hy = y + dy * d;
+      if (hx < 0 || hx > scene.terrain.width || hy > scene.terrain.height) break;
+
+      const worm = scene.worms.find(
+        (w) => w.alive && w !== owner && w.containsPoint(hx, hy),
+      );
+      if (worm) break;
+      if (scene.terrain.solidAt(hx, hy)) break;
+    }
+
+    scene.drawBeam(x, y, hx, hy, this.color);
+    this.onBeamHit(scene, hx, hy, dx, dy, owner);
+    return [];
+  }
+
+  /** Что происходит в точке попадания. По умолчанию — обычный взрыв. */
+  onBeamHit(scene, x, y, dx, dy, owner) {
+    scene.explode(x, y, this.explosion, owner);
+  }
+}
+
+/**
+ * Бита: земля цела, зато отправляет в полёт.
+ *
+ * Урон небольшой, весь смысл — в толчке: сбросить соседа в воду стоит
+ * дешевле любого снаряда.
+ */
+export class BatWeapon extends InstantWeapon {
+  onBeamHit(scene, x, y, dx, dy, owner) {
+    const r = this.explosion.damageRadius;
+    for (const w of scene.worms) {
+      if (!w.alive || w === owner) continue;
+      if (Math.hypot(w.x - x, w.centerY - y) > r) continue;
+      // Бьём в сторону удара и вверх — иначе цель просто вжимается в землю
+      w.applyImpulse(dx * this.explosion.knockback, -Math.abs(this.explosion.knockback) * 0.55);
+      w.damage(this.explosion.damage, 'бита');
+    }
+    scene.fx.explosion(x, y, 14);
+    scene.rig.shake(120, 0.003);
+  }
+}
+
+/**
+ * Оружие, которое кладут под ноги, а не бросают: динамит, мина.
+ *
+ * Сила заряда для него не значит ничего — предмет появляется там, где
+ * стоит боец, с нулевой скоростью. Точку вылета сцена всё равно посчитает,
+ * но мы её игнорируем: иначе динамит улетал бы вперёд на длину ствола.
+ */
+export class PlacedWeapon extends Weapon {
+  fire(scene, x, y, vx, vy, owner) {
+    const px = owner ? owner.x : x;
+    const py = owner ? owner.centerY : y;
+    return [new Projectile(scene, px, py, 0, 0, this, owner)];
+  }
+}
+
+/**
+ * Мина: не снаряд, а предмет на карте.
+ *
+ * Возвращаем пустой список снарядов — ждать в этом ходу нечего, мина
+ * сработает когда-нибудь потом. Сам предмет живёт в списке сцены, рядом
+ * с ящиками: список снарядов чистится в конце хода, мина бы не пережила.
+ */
+export class MineWeapon extends Weapon {
+  fire(scene, x, y, vx, vy, owner) {
+    scene.addMine(owner ? owner.x : x, owner ? owner.y - 4 : y, this, owner);
+    return [];
   }
 }
 

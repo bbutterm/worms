@@ -1,5 +1,6 @@
 import { captureState, applyState, applyCommand, stateHash } from './protocol.js';
 import { randomId } from './transport.js';
+import { player } from '../platform/player.js';
 
 /**
  * Сетевая партия на двоих.
@@ -23,6 +24,10 @@ export class NetSession {
 
     this.id = transport.id ?? randomId();
     this.peerId = null;
+    // Имя и рейтинг соперника нужны сразу: их видно в бою и по ним же
+    // считается изменение рейтинга в конце
+    this.me = player();
+    this.opponent = null;
     this.myTeam = null;        // null = ещё не спарились
     this.seed = scene.seed;
     this.paired = false;
@@ -43,7 +48,10 @@ export class NetSession {
   }
 
   _hello() {
-    this.transport.send({ type: 'hello', id: this.id, seed: this.seed });
+    this.transport.send({
+      type: 'hello', id: this.id, seed: this.seed,
+      name: this.me.name, rating: this.me.rating,
+    });
   }
 
   _status(text) {
@@ -63,6 +71,7 @@ export class NetSession {
   _onHello(msg) {
     if (this.paired && msg.id === this.peerId) return;
     this.peerId = msg.id;
+    this.opponent = { name: msg.name ?? 'Соперник', rating: msg.rating ?? 1000 };
 
     // Меньший идентификатор — первая команда, и его зерно общее.
     const iAmFirst = this.id < msg.id;
@@ -75,7 +84,7 @@ export class NetSession {
     if (!this.paired) {
       this.paired = true;
       clearInterval(this.helloTimer);
-      this._status(`вы играете за ${this.myTeam === 0 ? 'красных' : 'синих'}`);
+      this._status(`соперник: ${this.opponent.name} (${this.opponent.rating})`);
       this.scene.startNetMatch(seed, this.myTeam);
     }
   }

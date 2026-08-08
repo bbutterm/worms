@@ -54,6 +54,15 @@ PROJECTILES = {
     'proj_cluster': ('cluster.png', 60, 32, None),
     'proj_bomblet': ('clustlet.png', 60, 6, None),
     'proj_mole': ('mbbomb.png', 100, 10, 30),   # крот-бомба нарисована крупно
+    'proj_banana': ('banana.png', 60, 32, None),
+    'proj_holy': ('hgrenade.png', 60, 32, None),
+    # Динамит нарисован длинной лентой горения — берём начало, дальше
+    # кадры повторяются и на экране разницы не видно
+    'proj_dynamite': ('dynamite.png', 60, 20, None),
+    'proj_mine': ('mineoff.png', 60, 12, None),
+    'proj_mine_on': ('mineon.png', 60, 12, None),
+    'proj_airmissile': ('airmisl.png', 60, 32, None),
+    'proj_mortar': ('mortar.png', 60, 32, None),
 }
 
 ICONS = {
@@ -61,6 +70,15 @@ ICONS = {
     'icon_grenade': 'grenade.1.png',
     'icon_cluster': 'cluster.1.png',
     'icon_mole': 'mole.1.png',
+    'icon_banana': 'banana.1.png',
+    'icon_holy': 'hgrenade.1.png',
+    'icon_dynamite': 'dynamite.1.png',
+    'icon_mine': 'mine.1.png',
+    'icon_airstrike': 'airstrke.1.png',
+    'icon_shotgun': 'shotgun.1.png',
+    'icon_bat': 'baseball.1.png',
+    'icon_teleport': 'teleport.1.png',
+    'icon_mortar': 'mortar.1.png',
 }
 
 meta = {}
