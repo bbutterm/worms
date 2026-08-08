@@ -19,7 +19,8 @@ import { makeTransport } from '../net/connect.js';
 import { startRoom, shareRoom, haptic } from '../platform/telegram.js';
 import { HOTSEAT } from '../core/match.js';
 import { Bot } from '../ai/Bot.js';
-import { markDone } from '../campaign/missions.js';
+import { markDone, MISSION_BY_ID } from '../campaign/missions.js';
+import { checkObjective, snapshot, objectiveText } from '../campaign/objectives.js';
 import { player, eloDelta, recordResult } from '../platform/player.js';
 import { OffscreenMarkers } from '../ui/OffscreenMarkers.js';
 import { CameraRig } from '../ui/CameraRig.js';
@@ -733,6 +734,7 @@ export default class GameScene extends Phaser.Scene {
       this.onShot?.(cmd);
       this.net?.sendShot(cmd);
     }
+    this.fx.sound('shot');
     const shots = this.turn.weapon.fire(this, sx, sy, vx, vy, w);
     this.projectiles.push(...shots);
     this.turn.onFired();
@@ -832,8 +834,30 @@ export default class GameScene extends Phaser.Scene {
     return this.worms.some((w) => w.team === team && w.alive);
   }
 
+  /**
+   * Итог миссии по её задаче. У кампании победа не всегда «выбить всех»:
+   * бывает «продержаться», «без потерь», «уложиться в N ходов».
+   * @returns {'win'|'lose'|null}
+   */
+  missionOutcome() {
+    if (this.match.mode !== 'campaign') return null;
+    const mission = MISSION_BY_ID[this.match.missionId];
+    if (!mission?.objective) return null;
+    return checkObjective(mission.objective, snapshot({
+      turn: this.turn.turnNumber,
+      playerTeam: this.myTeamIndex,
+      worms: this.worms,
+      teams: this.match.teams,
+    }));
+  }
+
   /** null — играем дальше; иначе индекс победившей команды или -1 (ничья). */
   checkVictory() {
+    // Задача миссии решает раньше обычного «кого выбили»
+    const outcome = this.missionOutcome();
+    if (outcome === 'win') return this.myTeamIndex;
+    if (outcome === 'lose') return this.myTeamIndex === 0 ? 1 : 0;
+
     const alive = [];
     for (let t = 0; t < CFG.TEAMS; t++) if (this.teamAlive(t)) alive.push(t);
     if (alive.length === 1) return alive[0];
@@ -861,6 +885,8 @@ export default class GameScene extends Phaser.Scene {
     const color = winner >= 0 ? TEAM_COLORS[winner] : 0xffffff;
 
     if (this.match.mode === 'campaign' && winner === mine) markDone(this.match.missionId);
+    this.fx.sound(winner === mine ? 'victory' : 'defeat');
+    haptic(winner === mine ? 'win' : 'lose');
 
     // Рейтинг двигается только в сетевом бою: против бота и в хотсите
     // очков не бывает, иначе их можно было бы «нафармить» о самого себя.

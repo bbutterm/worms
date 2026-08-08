@@ -1,15 +1,39 @@
 import { CFG, DEPTH } from '../config.js';
 import { has } from '../core/assets.js';
+import { sfx } from '../audio/Sfx.js';
 import { font, UI } from './theme.js';
 
-/** Визуальные эффекты: взрывы, брызги, всплывающие числа урона. */
+// Мельче этого взрываются только бомблеты кассеты (радиус 22) — им
+// положен сухой щелчок, а не полноценный бабах.
+const SMALL_BLAST = 24;
+
+// «Синие — ход 3»: так выглядит объявление хода и только оно.
+const TURN_BANNER = /—\s*ход\s+\d/i;
+
+/**
+ * Визуальные эффекты: взрывы, брызги, всплывающие числа урона.
+ *
+ * Здесь же живёт и звук. Не потому, что ему тут место по смыслу, а потому
+ * что каждый эффект уже вызывается ровно там, где событие произошло: один
+ * вызов fx.explosion() даёт и картинку, и грохот, и остальному коду не надо
+ * помнить про вторую подсистему.
+ */
 export class Fx {
   constructor(scene) {
     this.scene = scene;
+    // Наружу — чтобы звуки без визуальной пары (шаг, прыжок, тик таймера,
+    // выбор оружия) звались тем же fx, а не отдельным импортом в каждом файле.
+    this.sfx = sfx;
+  }
+
+  /** Звук без картинки: fx.sound('jump'), fx.sound('tick'). */
+  sound(name, opts) {
+    return sfx.play(name, opts);
   }
 
   explosion(x, y, radius) {
     const s = this.scene;
+    sfx.play(radius <= SMALL_BLAST ? 'smallExplosion' : 'explosion', { radius });
 
     // Взрыв из оригинала собирается из двух примитивов: белая вспышка
     // (кадр 0 fx_flash), оранжевое кольцо (кадр 3) и облачка дыма.
@@ -77,6 +101,7 @@ export class Fx {
 
   splash(x, y = CFG.WATER_Y) {
     const s = this.scene;
+    sfx.play('splash');
     for (let i = 0; i < 8; i++) {
       const p = s.rig.world(s.add.circle(x, y, 2 + Math.random() * 3, 0x9fd8ff, 0.9).setDepth(DEPTH.FX));
       s.tweens.add({
@@ -93,6 +118,9 @@ export class Fx {
 
   damageNumber(x, y, amount) {
     const s = this.scene;
+    // Число урона всплывает над каждым получившим по шее — это и есть
+    // единственная точка, общая для взрыва, падения и утопления.
+    sfx.play('hurt');
     const t = s.add.text(x, y, `-${amount}`, font(19, 800, '#ff9a9a'))
       .setOrigin(0.5).setDepth(DEPTH.FX + 1);
     s.rig.world(t);
@@ -105,6 +133,7 @@ export class Fx {
   /** Всплывающая подпись о подобранном ящике. */
   pickup(x, y, text, color = '#ffd166') {
     const s = this.scene;
+    sfx.play('pickup');
     const t = s.rig.world(s.add.text(x, y - 18, text, font(16, 800, color))
       .setOrigin(0.5).setDepth(DEPTH.FX + 1));
     s.tweens.add({
@@ -113,8 +142,17 @@ export class Fx {
     });
   }
 
-  banner(text, color = '#ffffff', duration = 1600) {
+  /**
+   * Плашка по центру экрана.
+   *
+   * sound — имя звука; можно передать null, если плашка должна быть немой,
+   * или 'victory' / 'defeat' в конце партии. По умолчанию объявление хода
+   * (единственная плашка с распознаваемым форматом) звучит сигналом «теперь
+   * ты», остальные — коротким кликом уведомления: они и есть уведомления.
+   */
+  banner(text, color = '#ffffff', duration = 1600, sound = undefined) {
     const s = this.scene;
+    sfx.play(sound === undefined ? (TURN_BANNER.test(text) ? 'turnStart' : 'select') : sound);
     const t = s.add.text(CFG.VIEW_W / 2, 168, text, font(34, 800, color))
       .setOrigin(0.5).setScrollFactor(0).setDepth(DEPTH.HUD + 5);
     t.setAlign('center');

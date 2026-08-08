@@ -1,5 +1,6 @@
 import { UI, font, ensureButton } from '../ui/theme.js';
 import { MISSIONS, loadProgress, isUnlocked } from '../campaign/missions.js';
+import { objectiveText } from '../campaign/objectives.js';
 import { quickMatch, campaignMatch, onlineMatch } from '../core/match.js';
 import { randomRoom, copyText } from '../net/transport.js';
 import { Lobby } from '../net/lobby.js';
@@ -194,8 +195,14 @@ export default class MenuScene extends Phaser.Scene {
     this._clear();
     const done = loadProgress();
     this._title('Кампания', `пройдено ${done.size} из ${MISSIONS.length}`);
-    const cx = this.W / 2;
-    const y0 = 178, step = 78;
+
+    // Восемь миссий в столбик не влезают по высоте — раскладываем в две
+    // колонки. Ширина плашки при этом меньше обычной кнопки меню.
+    const w = Math.min(400, (this.W - 120) / 2);
+    const rows = Math.ceil(MISSIONS.length / 2);
+    const step = 70;
+    const y0 = 168;
+    const colX = [this.W / 2 - w / 2 - 14, this.W / 2 + w / 2 + 14];
 
     MISSIONS.forEach((m, i) => {
       const open = isUnlocked(i, done);
@@ -203,9 +210,11 @@ export default class MenuScene extends Phaser.Scene {
       // Красная плашка — только у той миссии, которую играть дальше:
       // тусклая красная у запертой читалась как «сломано», а не «закрыто».
       const next = open && !done.has(m.id);
-      this._button(m.id, cx, y0 + step * i, `${i + 1}. ${m.title}${mark}`,
+      this._button(m.id, colX[Math.floor(i / rows)], y0 + step * (i % rows),
+        `${i + 1}. ${m.title}${mark}`,
         open ? m.subtitle : 'откроется после предыдущей',
-        () => this.showBrief(m), { enabled: open, variant: next ? 'primary' : 'normal' });
+        () => this.showBrief(m),
+        { enabled: open, variant: next ? 'primary' : 'normal', w, h: 60 });
     });
     this._back();
   }
@@ -226,8 +235,11 @@ export default class MenuScene extends Phaser.Scene {
       this.items.push(this.add.text(cx, y + 26 + i * 30, line, font(15, 700))
         .setOrigin(0.5, 0));
     });
+    this.items.push(this.add.text(cx, y + h + 12,
+      `Задача: ${objectiveText(mission.objective)}`, font(14, 800, UI.accent))
+      .setOrigin(0.5, 0));
 
-    this._button('start', cx, y + h + 60, 'В бой', '',
+    this._button('start', cx, y + h + 74, 'В бой', '',
       () => this.start(campaignMatch(mission.id)), { variant: 'primary', w: 300, h: 62 });
     this._back(() => this.showCampaign());
   }

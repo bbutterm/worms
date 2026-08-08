@@ -53,6 +53,7 @@ export class TurnManager {
     if (this.ammoOf(i) <= 0) return;      // пустое оружие не выбирается
     this.weaponIndex = i;
     this.shotsLeft = WEAPONS[i].shots;
+    this.scene.fx?.sound('select');
     this.scene.hud.setWeaponIndex(i);
   }
 
@@ -118,6 +119,7 @@ export class TurnManager {
     for (const w of this.scene.worms) w.setActiveMarker(w === worm);
     this.scene.followTarget = worm;
     this.scene.frameTurn(worm);
+    this.scene.fx.sound('turnStart');
     this.scene.fx.banner(
       `${TEAM_NAMES[team]} — ход ${this.turnNumber}`,
       hex(TEAM_COLORS[team]), 1200,
@@ -235,7 +237,11 @@ export class TurnManager {
 
     switch (this.state) {
       case STATE.AIM: {
+        const was = Math.ceil(this.timeLeft);
         this.timeLeft = Math.max(0, this.timeLeft - dt);
+        // Последние пять секунд тикаем — по разу на секунду
+        const now = Math.ceil(this.timeLeft);
+        if (now !== was && now <= 5 && now > 0) scene.fx?.sound('tick');
         // Чужой ход кончает сам соперник: наши часы могут отстать от его на
         // доли секунды, и обрывать ход по ним — значит сбить чужой выстрел.
         if (this._holding(dt)) break;

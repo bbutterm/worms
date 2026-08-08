@@ -221,6 +221,12 @@ export class Worm {
       this.x = nx;
       this.y = ny;
       moved = true;
+      // Звук шага не на каждый пиксель: движок сам глушит частые повторы,
+      // но лишние вызовы всё равно ни к чему
+      if ((this._stepPhase = (this._stepPhase ?? 0) + step) > 14) {
+        this._stepPhase = 0;
+        this.scene.fx?.sound('step');
+      }
     }
 
     this._clampToWorld();
@@ -231,6 +237,7 @@ export class Worm {
 
   jump(dir = this.facing) {
     if (!this.alive || !this.grounded) return;
+    this.scene.fx?.sound('jump');
     this.grounded = false;
     this.fallStartY = this.y;
     this.vy = CFG.JUMP_VY;
