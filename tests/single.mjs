@@ -8,6 +8,7 @@
  * помешать и что миссии кампании собираются в играбельные карты.
  */
 import { chromium } from 'playwright';
+import { launchOptions } from './browser.mjs';
 
 const BASE = process.argv[2] || 'http://127.0.0.1:5173';
 
@@ -20,7 +21,7 @@ function check(name, ok, detail = '') {
 }
 
 const browser = await chromium.launch(
-  process.env.CHROMIUM_PATH ? { executablePath: process.env.CHROMIUM_PATH } : {},
+  launchOptions(),
 );
 const page = await browser.newPage({ viewport: { width: 1280, height: 720 }, hasTouch: true });
 page.on('pageerror', (e) => errors.push(`pageerror: ${e.message}`));

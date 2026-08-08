@@ -12,6 +12,7 @@
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { chromium } from 'playwright';
+import { launchOptions } from './browser.mjs';
 
 const BASE = process.argv[2] || 'http://127.0.0.1:5173';
 const failures = [];
@@ -56,7 +57,7 @@ check('ключ в конфиге публичный',
 
 // --- в браузере ---
 const browser = await chromium.launch(
-  process.env.CHROMIUM_PATH ? { executablePath: process.env.CHROMIUM_PATH } : {},
+  launchOptions(),
 );
 const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
 const external = [];

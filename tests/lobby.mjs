@@ -12,6 +12,7 @@
  * проверяется логика лобби, а не транспорт.
  */
 import { chromium } from 'playwright';
+import { launchOptions } from './browser.mjs';
 
 const URL = process.argv[2] || 'http://127.0.0.1:5173';
 const LAG = 40;
@@ -25,7 +26,7 @@ function check(name, ok, detail = '') {
 }
 
 const launch = () => chromium.launch(
-  process.env.CHROMIUM_PATH ? { executablePath: process.env.CHROMIUM_PATH } : {},
+  launchOptions(),
 );
 
 const browsers = [await launch(), await launch()];

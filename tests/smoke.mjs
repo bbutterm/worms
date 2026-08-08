@@ -9,6 +9,7 @@
  * Тест намеренно не мокает ничего — гоняется настоящая игра целиком.
  */
 import { chromium } from 'playwright';
+import { launchOptions } from './browser.mjs';
 
 const URL = process.argv[2] || 'http://127.0.0.1:5173';
 const BIOME = 'forest';
@@ -28,7 +29,7 @@ function check(name, ok, detail = '') {
 // Путь можно навязать снаружи: в некоторых окружениях предустановленный
 // Chromium не совпадает с ревизией, которую ждёт playwright.
 const browser = await chromium.launch(
-  process.env.CHROMIUM_PATH ? { executablePath: process.env.CHROMIUM_PATH } : {},
+  launchOptions(),
 );
 // Пропорции окна можно навязать: раскладка под них подстраивается, и
 // проверять её надо не только на 16:9. Пример: VIEWPORT=932x430 npm test

@@ -41,7 +41,10 @@ console.log(`статика на http://127.0.0.1:${port}\n`);
 // Наборов два: обычная игра и сетевая партия из двух вкладок.
 // Можно взять один: node tests/run.mjs net
 const only = process.argv[2];
-const suites = ['smoke', 'single', 'net', 'lobby', 'supabase'].filter((s) => !only || s === only);
+// match идёт первым: он без браузера, считает секунды и ловит расхождения
+// в подборе раньше, чем на них уйдёт полчаса браузерных прогонов.
+const suites = ['match', 'smoke', 'single', 'net', 'lobby', 'supabase']
+  .filter((s) => !only || s === only);
 
 let code = 0;
 for (const suite of suites) {
