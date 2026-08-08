@@ -255,8 +255,15 @@ for (const id of ['bazooka', 'grenade', 'cluster', 'mole', 'banana', 'holy', 'mo
       () => window.__WORMS__.scene.getScene('Game').mines.length);
     check('мина: появилась в мире', placed > 0, `мин на карте: ${placed}`);
 
-    // Ждём дольше взвода и фитиля: если мина считает своего — рванёт
-    await page.waitForTimeout(4000);
+    // Ждём не по часам, а по состоянию мины: игровое время под нагрузкой
+    // идёт втрое медленнее реального, и фиксированная пауза проверяла бы
+    // не мину, а скорость машины.
+    await page.waitForFunction(
+      () => window.__WORMS__.scene.getScene('Game').mines[0]?.armed !== false,
+      null, { timeout: 30000 },
+    ).catch(() => {});
+    // Взведённая мина, под которой стоит хозяин, должна молчать
+    await page.waitForTimeout(1500);
     const own = await page.evaluate(() => {
       const s = window.__WORMS__.scene.getScene('Game');
       const { shooter, before } = window.__probe;
@@ -272,7 +279,12 @@ for (const id of ['bazooka', 'grenade', 'cluster', 'mole', 'banana', 'holy', 'mo
       const { target } = window.__probe;
       if (m) { target.x = m.x; target.y = m.y; target.vx = 0; target.vy = 0; }
     });
-    await page.waitForTimeout(3000);
+    // Опять по состоянию, а не по часам: фитиль тикает игровым временем
+    await page.waitForFunction(() => {
+      const s = window.__WORMS__.scene.getScene('Game');
+      const { target } = window.__probe;
+      return s.mines.length === 0 || target.health < 100 || !target.alive;
+    }, null, { timeout: 30000 }).catch(() => {});
     const foe = await page.evaluate(() => {
       const s = window.__WORMS__.scene.getScene('Game');
       const { target } = window.__probe;
