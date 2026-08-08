@@ -21,6 +21,7 @@ export class TurnManager {
     this.holdTimer = 0;     // сколько ждём ход соперника
     this.weaponIndex = 0;
     this.shotsLeft = 1;     // сколько выстрелов осталось этим ходом
+    this.retreating = false;   // заряд поставлен, осталось уйти
     this.teamCursor = new Array(CFG.TEAMS).fill(0);
     this.turnNumber = 0;
     // Патроны общие на команду, как в оригинале
@@ -98,6 +99,7 @@ export class TurnManager {
     this.turnNumber++;
     this.timeLeft = this.scene.turnTime ?? CFG.TURN_TIME;
     this.state = STATE.AIM;
+    this.retreating = false;
 
     // Оружие могло кончиться у этой команды — откатываемся на доступное
     if (this.ammoOf(this.weaponIndex) <= 0) {
@@ -145,6 +147,7 @@ export class TurnManager {
     this.timeLeft = this.scene.turnTime ?? CFG.TURN_TIME;
     this.holdTimer = 0;
     this.state = STATE.AIM;
+    this.retreating = false;
 
     this.weaponIndex = info.weapon ?? this.weaponIndex;
     this.shotsLeft = this.weapon.shots;
@@ -204,6 +207,16 @@ export class TurnManager {
     this.shotsLeft = Math.max(0, this.shotsLeft - 1);
     this.scene.cancelCharge();
 
+    // Заряд под ногами: даём уйти. Ход не кончается, но и стрелять больше
+    // нельзя — остаются только ноги. Без этого окна мина взводилась под
+    // тем, кто её поставил, и убивала своего.
+    if (weapon.retreat > 0) {
+      this.retreating = true;
+      this.timeLeft = weapon.retreat;
+      this.scene.fx.banner('Уходи!', '#ff8a8a', 1200);
+      return;
+    }
+
     if (this.shotsLeft > 0 && weapon.instant) {
       // Второй выстрел того же хода: даём на него хотя бы несколько секунд
       this.timeLeft = Math.max(this.timeLeft, 6);
@@ -219,6 +232,7 @@ export class TurnManager {
   /** Досрочно завершить ход (таймер, смерть активного бойца). */
   endTurn() {
     if (this.state === STATE.OVER) return;
+    this.retreating = false;
     this.state = STATE.RESOLVE;
     this.resolveTimer = 0;
     this.activeWorm?.setActiveMarker(false);
@@ -247,7 +261,7 @@ export class TurnManager {
         if (this._holding(dt)) break;
         if (!this.activeWorm || !this.activeWorm.alive) { this.endTurn(); break; }
         if (this.timeLeft <= 0) {
-          scene.fx.banner('Время вышло', '#ffd166', 1000);
+          scene.fx.banner(this.retreating ? 'Поздно' : 'Время вышло', '#ffd166', 1000);
           this.endTurn();
         }
         break;

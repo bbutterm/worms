@@ -43,7 +43,7 @@ console.log(`статика на http://127.0.0.1:${port}\n`);
 const only = process.argv[2];
 // match идёт первым: он без браузера, считает секунды и ловит расхождения
 // в подборе раньше, чем на них уйдёт полчаса браузерных прогонов.
-const suites = ['match', 'smoke', 'single', 'net', 'lobby', 'supabase']
+const suites = ['match', 'weapons', 'smoke', 'single', 'net', 'lobby', 'supabase']
   .filter((s) => !only || s === only);
 
 let code = 0;

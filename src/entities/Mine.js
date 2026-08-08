@@ -62,7 +62,11 @@ export class Mine {
 
     if (!this.armed) {
       this.armTimer -= dt;
-      if (this.armTimer <= 0) {
+      // Взводится не просто по таймеру, а когда рядом никого не осталось.
+      // Иначе мина всегда убивала своего же: ход кончается сразу после
+      // установки, поставивший стоит вплотную, и первым, кого замечает
+      // взведённая мина, оказывается он сам.
+      if (this.armTimer <= 0 && !this._someoneClose()) {
         this.armed = true;
         if (this.view.setTexture && has(this.scene, 'proj_mine_on')) {
           this.view.setTexture('proj_mine_on');

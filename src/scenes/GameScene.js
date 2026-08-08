@@ -714,7 +714,9 @@ export default class GameScene extends Phaser.Scene {
     // Показ чужого хода идёт мимо проверки прав: приказ уже состоялся
     // у соперника, наше дело — повторить его на экране.
     const allowed = this.replaying ? this.turn.state === STATE.AIM : this.canAct();
-    if (!allowed || !w || !w.alive) return;
+    // Во время отхода от собственного заряда стрелять нельзя: иначе мина
+    // превращалась бы в бесплатную добавку к обычному выстрелу.
+    if (!allowed || this.turn.retreating || !w || !w.alive) return;
 
     const len = Math.hypot(vx, vy) || 1;
     const nx = vx / len, ny = vy / len;

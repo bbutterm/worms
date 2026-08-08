@@ -133,6 +133,7 @@ export const WEAPONS = [
     iconKey: 'icon_dynamite',
     category: 'снаряжение',
     startAmmo: 1,
+    retreat: 5,
     projectile: {
       radius: 6, windScale: 0, drag: 4, fuse: 4, trail: false,
     },
@@ -181,6 +182,7 @@ export const WEAPONS = [
     iconKey: 'icon_mine',
     category: 'снаряжение',
     startAmmo: 2,
+    retreat: 5,
     explosion: { radius: 46, damageRadius: 84, damage: 50, knockback: 380, shake: 0.008 },
   }),
 

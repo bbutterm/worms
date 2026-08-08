@@ -26,6 +26,9 @@ export class Weapon {
     this.shots = cfg.shots ?? 1;
     // Мгновенное оружие: попадание считается лучом сразу, снаряда нет
     this.instant = cfg.instant ?? false;
+    // Сколько секунд даётся на отход после применения. Нужно тому, что
+    // кладётся под ноги: иначе ход кончается там же, где лежит заряд.
+    this.retreat = cfg.retreat ?? 0;
     // Кадры спрайтшита — предрассчитанные повороты, а не анимация
     this.rotational = cfg.rotational ?? false;
 
@@ -119,17 +122,41 @@ export class InstantWeapon extends Weapon {
  * дешевле любого снаряда.
  */
 export class BatWeapon extends InstantWeapon {
-  onBeamHit(scene, x, y, dx, dy, owner) {
-    const r = this.explosion.damageRadius;
+  /**
+   * Бита бьёт не лучом, а размахом перед собой.
+   *
+   * Лучом она почти никогда не попадала: прицел в начале хода стоит на 45°,
+   * и тонкая линия уходила соседу над головой. Игрок видел взмах и полное
+   * отсутствие последствий. Поэтому цель ищется в секторе перед бойцом —
+   * по дальности от него самого и по стороне, куда он повёрнут, — а угол
+   * прицела задаёт только направление толчка.
+   */
+  fire(scene, x, y, vx, vy, owner) {
+    const len = Math.hypot(vx, vy) || 1;
+    const dx = vx / len, dy = vy / len;
+    const side = dx >= 0 ? 1 : -1;
+    const ox = owner ? owner.x : x;
+    const oy = owner ? owner.centerY : y;
+
+    scene.drawBeam(ox, oy, ox + side * this.range, oy - this.range * 0.3, this.color);
+
+    let hit = 0;
     for (const w of scene.worms) {
       if (!w.alive || w === owner) continue;
-      if (Math.hypot(w.x - x, w.centerY - y) > r) continue;
+      const gapX = (w.x - ox) * side;               // впереди, а не за спиной
+      const gapY = Math.abs(w.centerY - oy);
+      if (gapX < -6 || gapX > this.range) continue;
+      if (gapY > this.range * 0.8) continue;
       // Бьём в сторону удара и вверх — иначе цель просто вжимается в землю
-      w.applyImpulse(dx * this.explosion.knockback, -Math.abs(this.explosion.knockback) * 0.55);
+      w.applyImpulse(dx * this.explosion.knockback,
+        -Math.abs(this.explosion.knockback) * 0.55);
       w.damage(this.explosion.damage, 'бита');
+      hit++;
     }
-    scene.fx.explosion(x, y, 14);
+
+    scene.fx.explosion(ox + side * 18, oy - 6, hit ? 16 : 8);
     scene.rig.shake(120, 0.003);
+    return [];
   }
 }
 
