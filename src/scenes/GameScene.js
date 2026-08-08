@@ -10,7 +10,7 @@ import { Mine } from '../entities/Mine.js';
 import { Hud } from '../ui/Hud.js';
 import { Fx } from '../ui/Fx.js';
 import { AimController } from '../ui/AimController.js';
-import { font, UI } from '../ui/theme.js';
+import { font, UI, ensureButton } from '../ui/theme.js';
 import { WEAPONS } from '../weapons/index.js';
 import { captureCommand } from '../net/protocol.js';
 import { NetSession } from '../net/session.js';
@@ -210,6 +210,7 @@ export default class GameScene extends Phaser.Scene {
   startNetMatch(seed, myTeam) {
     this.myTeam = myTeam;
     this.registry.set('seed', seed);
+    this.gameOverUi = null;
     // Перезапуск безусловный: к моменту встречи локальная партия уже могла
     // уйти вперёд, а начинать надо с одинакового состояния.
     this.scene.restart();
@@ -893,9 +894,41 @@ export default class GameScene extends Phaser.Scene {
 
     this.gameOverUi = [shade, title, sub];
 
+    // В сетевом бою тапом никуда не уходим: там есть выбор — реванш или
+    // меню, — и случайное касание не должно решать за игрока.
+    if (this.net?.connected) {
+      sub.setText('реванш начнётся, когда согласятся оба');
+      this.gameOverUi.push(this._overButton(-120, 'Реванш', () => {
+        this.net.wantRematch();
+        sub.setText('ждём соперника…');
+      }));
+      this.gameOverUi.push(this._overButton(120, 'В меню', () => this.toMenu()));
+      return;
+    }
+
     this.time.delayedCall(600, () => {
       this.input.once('pointerdown', () => (backToMenu ? this.toMenu() : this.scene.restart()));
     });
+  }
+
+  /** Кнопка на затемнении итога. */
+  _overButton(dx, label, onTap) {
+    const w = 220, h = 58;
+    const x = CFG.VIEW_W / 2 + dx, y = CFG.VIEW_H / 2 + 100;
+    ensureButton(this, `ui-over-${w}x${h}`, w, h, dx < 0 ? 'primary' : 'normal');
+    const img = this.rig.ui(this.add.image(x, y, `ui-over-${w}x${h}`)
+      .setScrollFactor(0).setDepth(DEPTH.HUD + 12));
+    img.setInteractive({ useHandCursor: true });
+    img.on('pointerup', onTap);
+    const text = this.rig.ui(this.add.text(x, y, label, font(20, 800))
+      .setOrigin(0.5).setScrollFactor(0).setDepth(DEPTH.HUD + 13));
+    this.gameOverUi?.push(text);
+    return img;
+  }
+
+  /** Соперник нажал реванш раньше нас — покажем это. */
+  onPeerRematch() {
+    this.fx.banner('соперник хочет реванш', '#8ef0a0', 2200);
   }
 
   /** Выход в меню: сетевую сессию рвём, иначе она переживёт партию. */

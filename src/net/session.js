@@ -30,6 +30,8 @@ export class NetSession {
     this.opponent = null;
     this.myTeam = null;        // null = ещё не спарились
     this.seed = scene.seed;
+    this.iWantRematch = false;
+    this.peerWantsRematch = false;
     this.paired = false;
     this.lastTurn = 0;         // отсекает опоздавшие приказы
     this.lastPeerSeen = 0;
@@ -64,6 +66,7 @@ export class NetSession {
       case 'hello': return this._onHello(msg);
       case 'shot': return this._onShot(msg);
       case 'state': return this._onState(msg);
+      case 'rematch': return this._onRematch();
       default: return undefined;
     }
   }
@@ -85,6 +88,7 @@ export class NetSession {
       this.paired = true;
       clearInterval(this.helloTimer);
       this._status(`соперник: ${this.opponent.name} (${this.opponent.rating})`);
+      this.seed = seed;
       this.scene.startNetMatch(seed, this.myTeam);
     }
   }
@@ -112,6 +116,34 @@ export class NetSession {
     }
   }
 
+  /**
+   * Реванш. Оба должны нажать: пока согласен только один, партия не
+   * перезапускается — иначе второго выкинуло бы из экрана результата.
+   *
+   * Новое зерно не согласовывается: оно выводится из старого одной и той
+   * же формулой у обеих сторон, значит совпадёт само.
+   */
+  wantRematch() {
+    if (!this.paired) return;
+    this.iWantRematch = true;
+    this.transport.send({ type: 'rematch' });
+    this._maybeRematch();
+  }
+
+  _onRematch() {
+    this.peerWantsRematch = true;
+    this.scene.onPeerRematch?.();
+    this._maybeRematch();
+  }
+
+  _maybeRematch() {
+    if (!this.iWantRematch || !this.peerWantsRematch) return;
+    this.iWantRematch = false;
+    this.peerWantsRematch = false;
+    this.lastTurn = 0;
+    this.scene.startNetMatch(nextSeed(this.seed), this.myTeam);
+  }
+
   /** Вызывается сценой при выстреле локального игрока. */
   sendShot(cmd) {
     if (!this.paired) return;
@@ -133,4 +165,12 @@ export class NetSession {
     clearInterval(this.helloTimer);
     this.transport.close();
   }
+}
+
+/**
+ * Зерно следующего боя. Линейный конгруэнтный шаг от общего зерна: обе
+ * стороны получают одно и то же, ни о чём не договариваясь.
+ */
+export function nextSeed(seed) {
+  return (Math.imul(seed >>> 0, 1103515245) + 12345) >>> 0;
 }
