@@ -94,12 +94,18 @@ const shoot = (weaponId, gap, aimAtTarget, fromX) => page.evaluate(
       const x = 200 + ((startX - 200 + k * 20) % span);
       const a = s.terrain.surfaceYAt(x, 0);
       if (a === null || a >= 560) continue;
-      let flat = true;
-      for (let d = 10; d <= dist && flat; d += 10) {
+      // Требуем не идеальной плоскости — после первой же воронки такой на
+      // карте не остаётся, — а двух вещей: мишень стоит примерно на той же
+      // высоте, и между ними нет бугра выше площадки, в который упёрся бы
+      // настильный выстрел. Понижения рельефа не мешают.
+      let ok = true;
+      for (let d = 10; d < dist && ok; d += 10) {
         const h = s.terrain.surfaceYAt(x + d, 0);
-        if (h === null || Math.abs(h - a) > 6) flat = false;
+        if (h === null || h < a - 4) ok = false;              // бугор на пути
       }
-      if (flat) base = { x, y: a };
+      const end = s.terrain.surfaceYAt(x + dist, 0);
+      if (end === null || Math.abs(end - a) > 8) ok = false;  // мишень не вровень
+      if (ok) base = { x, y: a };
     }
     if (!base) return { error: 'ровной площадки не нашлось' };
 
@@ -270,10 +276,17 @@ for (const id of ['bazooka', 'grenade', 'cluster', 'mole', 'banana', 'holy', 'mo
     const foe = await page.evaluate(() => {
       const s = window.__WORMS__.scene.getScene('Game');
       const { target } = window.__probe;
-      return { health: target.health, mines: s.mines.length, alive: target.alive };
+      const m = s.mines[0];
+      return {
+        health: target.health, mines: s.mines.length, alive: target.alive,
+        state: m
+          ? `взведена=${m.armed} фитиль=${m.fuse.toFixed(2)} хозяинушёл=${m.ownerLeft}`
+            + ` до мишени=${Math.round(Math.hypot(target.x - m.x, target.centerY - m.y))}`
+          : 'мины нет',
+      };
     });
     check('мина: срабатывает на чужого', foe.health < 100 || !foe.alive,
-      `у мишени ${foe.health} hp, мин осталось ${foe.mines}`);
+      `у мишени ${foe.health} hp, мин ${foe.mines}, ${foe.state}`);
   }
 }
 
