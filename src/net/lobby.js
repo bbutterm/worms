@@ -1,4 +1,5 @@
 import { player } from '../platform/player.js';
+import { findMatch, searchStatus } from './matchmaker.js';
 
 /**
  * Лобби: кто сейчас онлайн и с кем свести.
@@ -12,11 +13,9 @@ import { player } from '../platform/player.js';
  * Каждый раз в HEARTBEAT шлёт «я здесь» со своим состоянием. Кого не
  * слышно дольше TIMEOUT — считается ушедшим.
  *
- * Подбор без сервера и без арбитра. Оба клиента видят один и тот же список
- * ищущих, сортируют его по идентификатору и разбивают на пары подряд:
- * первый со вторым, третий с четвёртым. Решение получается одинаковым у
- * обеих сторон, потому что считается из одних и тех же данных, — и код
- * комнаты тоже выводится из пары идентификаторов, а не разыгрывается.
+ * Подбор без сервера и без арбитра: пару считает matchmaker.js из данных,
+ * которые видят обе стороны, поэтому решение у них совпадает. Здесь только
+ * присутствие, счётчик ожидания и вход в комнату.
  */
 
 const HEARTBEAT = 1500;   // мс между «я здесь»
@@ -26,8 +25,9 @@ export class Lobby {
   constructor(transport) {
     this.transport = transport;
     this.me = player();
-    this.peers = new Map();      // id -> { id, name, rating, state, seen }
+    this.peers = new Map();      // id -> { id, name, rating, state, waited, seen }
     this.state = 'idle';         // idle | searching
+    this.searchStart = 0;        // когда нажали «искать» — для ширины коридора
     this.onChange = null;        // сцена перерисовывает список
     this.onMatch = null;         // (room, opponent) — нашли пару
     this.matched = null;
@@ -39,6 +39,18 @@ export class Lobby {
     this.timer = setInterval(() => this._beat(), HEARTBEAT);
   }
 
+  /** Сколько секунд я уже ищу. Не ищу — ноль. */
+  waited() {
+    if (this.state !== 'searching' || !this.searchStart) return 0;
+    return Math.floor((Date.now() - this.searchStart) / 1000);
+  }
+
+  /** Подпись под кнопкой поиска: во что сейчас упирается подбор. */
+  statusText() {
+    if (this.state !== 'searching') return '';
+    return searchStatus(this.waited(), this.searching().length);
+  }
+
   _beat() {
     this._forget();
     this.transport.send({
@@ -47,6 +59,7 @@ export class Lobby {
       name: this.me.name,
       rating: this.me.rating,
       state: this.state,
+      waited: this.waited(),
     });
     if (this.state === 'searching') this._tryMatch();
     this.onChange?.(this.list());
@@ -66,7 +79,7 @@ export class Lobby {
     if (msg.type === 'here' && msg.id && msg.id !== this.me.id) {
       this.peers.set(msg.id, {
         id: msg.id, name: msg.name, rating: msg.rating,
-        state: msg.state, seen: Date.now(),
+        state: msg.state, waited: msg.waited ?? 0, seen: Date.now(),
       });
       if (this.state === 'searching') this._tryMatch();
       this.onChange?.(this.list());
@@ -82,27 +95,25 @@ export class Lobby {
     return [...this.peers.values()].sort((a, b) => b.rating - a.rating);
   }
 
+  /** Только те, кто тоже ищет бой. */
+  searching() {
+    return [...this.peers.values()].filter((p) => p.state === 'searching');
+  }
+
   search(on = true) {
     this.state = on ? 'searching' : 'idle';
+    this.searchStart = on ? Date.now() : 0;
     this.matched = null;
     this._beat();
   }
 
-  /**
-   * Разбиение ищущих на пары. Считается у каждого своё, но из одинаковых
-   * данных — поэтому совпадает. Кто в паре первый, тот и «хозяин» комнаты,
-   * но код всё равно один и тот же у обоих.
-   */
+  /** Пару считает matchmaker: одинаковые данные — одинаковый ответ у обоих. */
   _tryMatch() {
     if (this.matched) return;
-    const ids = [this.me.id, ...this.list()
-      .filter((p) => p.state === 'searching')
-      .map((p) => p.id)].sort();
-    const i = ids.indexOf(this.me.id);
-    const partnerId = i % 2 === 0 ? ids[i + 1] : ids[i - 1];
-    if (!partnerId) return;
-
-    this._enter(roomFor(this.me.id, partnerId), this.peers.get(partnerId));
+    const me = { id: this.me.id, rating: this.me.rating, waited: this.waited() };
+    const found = findMatch(me, this.searching());
+    if (!found) return;
+    this._enter(roomFor(this.me.id, found.peer.id), found.peer);
   }
 
   /** Позвать конкретного игрока из списка. */
@@ -119,6 +130,7 @@ export class Lobby {
     if (this.matched) return;
     this.matched = room;
     this.state = 'idle';
+    this.searchStart = 0;
     this.onMatch?.(room, opponent ?? null);
   }
 

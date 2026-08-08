@@ -62,11 +62,14 @@ for (let i = 0; i < 2; i++) {
       send(msg) { globalThis.__netOut(this.room, { ...msg, from: this.id }); },
       close() { globalThis.__inboxes.delete(this.room); },
     });
-    // Имена и рейтинги разводим, чтобы видеть, что именно передалось
+    // Имена и рейтинги разводим, чтобы видеть, что именно передалось.
+    // Разброс держим внутри стартового коридора подбора: расширение
+    // коридора со временем проверяет tests/match.mjs, и заставлять этот
+    // набор ждать лишние секунды незачем.
     localStorage.setItem('worms.player.v1', JSON.stringify({
       id: `test${Math.random().toString(36).slice(2, 7)}`,
       name: `Тестовый ${Math.floor(Math.random() * 90 + 10)}`,
-      rating: 1000 + Math.floor(Math.random() * 200),
+      rating: 1000 + Math.floor(Math.random() * 80),
       wins: 0, losses: 0,
     }));
   });

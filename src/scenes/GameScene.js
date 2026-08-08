@@ -22,6 +22,7 @@ import { Bot } from '../ai/Bot.js';
 import { markDone, MISSION_BY_ID } from '../campaign/missions.js';
 import { checkObjective, snapshot, objectiveText } from '../campaign/objectives.js';
 import { player, eloDelta, recordResult } from '../platform/player.js';
+import { leagueOf, nextLeague, toNextLeague } from '../platform/league.js';
 import { OffscreenMarkers } from '../ui/OffscreenMarkers.js';
 import { CameraRig } from '../ui/CameraRig.js';
 
@@ -536,7 +537,8 @@ export default class GameScene extends Phaser.Scene {
   _tickCharge(realDt) {
     if (!this.charging) return;
     if (!this.canAct()) { this.cancelCharge(); return; }
-    this.charge = Math.min(1, this.charge + realDt / CFG.CHARGE_TIME);
+    const step = Math.min(realDt, CFG.CHARGE_MAX_DT);
+    this.charge = Math.min(1, this.charge + step / CFG.CHARGE_TIME);
     if (this.charge >= 1) this.releaseCharge();
   }
 
@@ -891,11 +893,27 @@ export default class GameScene extends Phaser.Scene {
     // Рейтинг двигается только в сетевом бою: против бота и в хотсите
     // очков не бывает, иначе их можно было бы «нафармить» о самого себя.
     let ratingLine = '';
+    let leagueLine = '';
     if (this.net?.connected && winner >= 0 && this.net.opponent) {
       const me = player();
+      const before = leagueOf(me.rating);
       const delta = eloDelta(me.rating, this.net.opponent.rating, winner === mine);
       const after = recordResult(winner === mine, delta);
       ratingLine = `рейтинг ${after.rating} (${delta >= 0 ? '+' : ''}${delta})`;
+
+      // Смена лиги — главное событие боя, ради него и играют: её показываем
+      // отдельной строкой, а не оставляем считать в уме по числу рейтинга.
+      const now = leagueOf(after.rating);
+      if (now.id !== before.id) {
+        leagueLine = delta > 0
+          ? `Новая лига: ${now.name}`
+          : `Лига потеряна: теперь ${now.name}`;
+      } else {
+        const left = toNextLeague(after.rating);
+        leagueLine = left === null
+          ? `${now.name} — выше некуда`
+          : `${now.name} · до «${nextLeague(after.rating).name}» ещё ${left}`;
+      }
     }
 
     const shade = this.rig.ui(this.add.rectangle(0, 0, CFG.VIEW_W, CFG.VIEW_H, 0x070b14, 0.55)
@@ -911,8 +929,11 @@ export default class GameScene extends Phaser.Scene {
       this.rig.ui(this.add.text(CFG.VIEW_W / 2, CFG.VIEW_H / 2 + 12, ratingLine,
         font(20, 800, UI.accent)).setOrigin(0.5).setScrollFactor(0)
         .setDepth(DEPTH.HUD + 11));
+      this.rig.ui(this.add.text(CFG.VIEW_W / 2, CFG.VIEW_H / 2 + 38, leagueLine,
+        font(14, 800, leagueOf(player().rating).text)).setOrigin(0.5).setScrollFactor(0)
+        .setDepth(DEPTH.HUD + 11));
     }
-    const sub = this.add.text(CFG.VIEW_W / 2, CFG.VIEW_H / 2 + (ratingLine ? 52 : 32),
+    const sub = this.add.text(CFG.VIEW_W / 2, CFG.VIEW_H / 2 + (ratingLine ? 68 : 32),
       backToMenu ? 'тап — в меню' : 'тап или R — новая карта',
       font(18, 700, UI.textDim))
       .setOrigin(0.5).setScrollFactor(0).setDepth(DEPTH.HUD + 11);

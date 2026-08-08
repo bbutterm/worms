@@ -5,7 +5,8 @@ import { quickMatch, campaignMatch, onlineMatch } from '../core/match.js';
 import { randomRoom, copyText } from '../net/transport.js';
 import { Lobby } from '../net/lobby.js';
 import { makeTransport } from '../net/connect.js';
-import { player, setName, rankName } from '../platform/player.js';
+import { player, setName } from '../platform/player.js';
+import { leagueOf, nextLeague, leagueProgress, toNextLeague, leagueLabel } from '../platform/league.js';
 import { BOT_LEVELS } from '../ai/Bot.js';
 
 /**
@@ -141,6 +142,29 @@ export default class MenuScene extends Phaser.Scene {
     return img;
   }
 
+  /**
+   * Полоса лиги: где игрок внутри своей ступени и сколько до следующей.
+   *
+   * Голое число рейтинга не говорит ни много это, ни мало. Полоса отвечает
+   * на оба вопроса сразу — видно и положение внутри лиги, и цель.
+   */
+  _leagueBar(cx, y, rating) {
+    const w = 420, h = 10;
+    const cur = leagueOf(rating);
+    const next = nextLeague(rating);
+    const left = cx - w / 2;
+
+    this.items.push(this.add.rectangle(left, y, w, h, 0x0b1220, 0.85).setOrigin(0, 0.5));
+    const fill = Math.max(3, Math.round(w * leagueProgress(rating)));
+    this.items.push(this.add.rectangle(left, y, fill, h, cur.color).setOrigin(0, 0.5));
+
+    this.items.push(this.add.text(left, y + 12, cur.name, font(12, 800, cur.text))
+      .setOrigin(0, 0));
+    this.items.push(this.add.text(left + w, y + 12,
+      next ? `до «${next.name}» ещё ${toNextLeague(rating)}` : 'выше некуда',
+      font(12, 700, UI.textDim)).setOrigin(1, 0));
+  }
+
   _back(onTap = () => this.showRoot()) {
     this._button('back', 92, this.H - 46, '← назад', '', onTap, { w: 148, h: 50 });
   }
@@ -250,22 +274,24 @@ export default class MenuScene extends Phaser.Scene {
     this.section = this.showOnline;
     this._clear();
     const me = player();
-    this._title('Онлайн', `${me.name} · ${me.rating} · ${rankName(me.rating)}`);
+    this._title('Онлайн', leagueLabel(me.rating));
     const cx = this.W / 2;
+
+    this._leagueBar(cx, 132, me.rating);
 
     // Профиль: имя можно поменять, если игра открыта не в Telegram —
     // там имя и так своё, и подменять его незачем.
     if (!me.telegram) {
-      this._button('rename', cx, 150, 'Сменить имя', '', () => {
+      this._button('rename', cx, 176, 'Сменить имя', '', () => {
         const v = globalThis.prompt?.('Имя в бою:', me.name);
         if (v) { setName(v); this.showOnline(); }
       }, { w: 260, h: 46 });
     }
-    this.items.push(this.add.text(cx, 186,
+    this.items.push(this.add.text(cx, 212,
       `побед ${me.wins} · поражений ${me.losses}`, font(12, 700, UI.textDim))
       .setOrigin(0.5, 0));
 
-    const y0 = 226, step = 74;
+    const y0 = 250, step = 74;
     this._button('quickmatch', cx, y0, 'Быстрый бой', 'подобрать соперника по рейтингу',
       () => this.startSearch(), { variant: 'primary' });
     this._button('friend', cx, y0 + step, 'Играть с другом', 'по коду комнаты',
@@ -328,13 +354,17 @@ export default class MenuScene extends Phaser.Scene {
     this.playerRows.push(head);
 
     list.slice(0, 7).forEach((p, i) => {
-      const y = 148 + i * 30;
-      const row = this.add.text(x, y,
-        `${p.name} · ${p.rating}${p.state === 'searching' ? ' · ищет' : ''}`,
-        font(13, 700, p.state === 'searching' ? UI.text : UI.textDim)).setOrigin(0, 0);
+      const y = 148 + i * 34;
+      const searching = p.state === 'searching';
+      const row = this.add.text(x, y, p.name,
+        font(13, 800, searching ? UI.text : UI.textDim)).setOrigin(0, 0);
       row.setInteractive({ useHandCursor: true });
       row.on('pointerdown', () => this.lobby?.invite(p.id));
-      this.playerRows.push(row);
+      // Лига под именем: с кем сводит подбор, видно до боя, а не после
+      const sub = this.add.text(x, y + 15,
+        `${leagueLabel(p.rating)}${searching ? ' · ищет бой' : ''}`,
+        font(11, 700, leagueOf(p.rating).text)).setOrigin(0, 0).setAlpha(searching ? 1 : 0.6);
+      this.playerRows.push(row, sub);
     });
     // Строки живут отдельно от items: список обновляется чаще, чем раздел
     for (const o of this.playerRows) this.items.push(o);
@@ -344,18 +374,52 @@ export default class MenuScene extends Phaser.Scene {
   startSearch() {
     this.section = this.startSearch;
     this._clear();
-    this._title('Ищем соперника…', 'бой начнётся сам, как только кто-то найдётся');
+    const me = player();
+    this._title('Ищем соперника…', leagueLabel(me.rating));
     const cx = this.W / 2;
-    this.items.push(this.add.text(cx, 210,
-      'Можно свернуть игру — поиск продолжится, пока открыт этот экран.',
+
+    // Подбор начинает с равных по рейтингу и постепенно расширяет круг.
+    // Без этой строки экран выглядит зависшим: непонятно, ищет он ещё
+    // впритык или уже согласен на любого.
+    this.searchStatus = this.add.text(cx, 190, 'Ищем соперника…',
+      font(16, 800, UI.accent)).setOrigin(0.5, 0);
+    this.items.push(this.searchStatus);
+    this.items.push(this.add.text(cx, 224,
+      'Круг поиска расширяется каждые пять секунд ожидания.',
       font(13, 700, UI.textDim)).setOrigin(0.5, 0));
+
     this._button('cancel', cx, 300, 'Отменить поиск', '', () => {
       this.lobby?.search(false);
+      this._stopSearchTicker();
       this.showOnline();
     }, { w: 300, h: 56 });
+
     this._ensureLobby();
     this.lobby?.search(true);
     if (this.lobby) this._showPlayers(this.lobby.list());
+    this._startSearchTicker();
+  }
+
+  /** Строка статуса живёт своим таймером: лобби бьётся реже, чем хочется глазу. */
+  _startSearchTicker() {
+    this._stopSearchTicker();
+    this.searchTicker = this.time.addEvent({
+      delay: 500, loop: true,
+      callback: () => {
+        if (this.section !== this.startSearch || !this.searchStatus?.active) {
+          this._stopSearchTicker();
+          return;
+        }
+        const text = this.lobby?.statusText();
+        if (text) this.searchStatus.setText(text);
+      },
+    });
+    this.events.once('shutdown', () => this._stopSearchTicker());
+  }
+
+  _stopSearchTicker() {
+    this.searchTicker?.remove();
+    this.searchTicker = null;
   }
 
   askCode() {

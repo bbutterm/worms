@@ -43,6 +43,25 @@ const gameReady = () => page.waitForFunction(
   null, { timeout: 40000 },
 );
 
+/**
+ * Тапать по центру, пока не откроется меню.
+ *
+ * Экран итога отдаёт управление не сразу: обработчик «тап — в меню»
+ * ставится с задержкой, а задержка считается кадрами игры. Под нагрузкой
+ * кадров мало, и единственный тап по часам успевает уйти в пустоту —
+ * тест потом сорок секунд ждёт меню, которое никто не открывал. Поэтому
+ * стучимся, пока не откроют.
+ */
+async function tapToMenu(tries = 12) {
+  for (let i = 0; i < tries; i++) {
+    if (await page.evaluate(() => window.__WORMS__?.scene.isActive('Menu'))) return true;
+    const g = await view();
+    await page.mouse.click(Math.round(g.left + g.cw / 2), Math.round(g.top + g.ch / 2));
+    await page.waitForTimeout(500);
+  }
+  return page.evaluate(() => window.__WORMS__?.scene.isActive('Menu'));
+}
+
 const view = async () => page.evaluate(() => {
   const g = window.__WORMS__;
   const r = g.canvas.getBoundingClientRect();
@@ -80,6 +99,10 @@ const info = () => page.evaluate(() => {
     isBotTurn: s.isBotTurn(),
     alive: s.worms.filter((w) => w.alive).length,
     aboveWater: s.worms.every((w) => w.y < 630),
+    // Разброс по горизонтали: слишком тесно — бой начинается в упор,
+    // слишком далеко — стороны не достают друг друга даже полной силой.
+    spread: Math.round(Math.max(...s.worms.map((w) => w.x))
+      - Math.min(...s.worms.map((w) => w.x))),
     turnTime: s.turnTime,
     ammo: JSON.stringify(s.turn.ammo),
   };
@@ -197,8 +220,7 @@ const progress = await page.evaluate(() => localStorage.getItem('worms.campaign.
 check('пройденная миссия записана', (progress ?? '').includes('range'), progress ?? 'пусто');
 
 await page.waitForTimeout(1200);
-const g = await view();
-await page.mouse.click(Math.round(g.left + g.cw / 2), Math.round(g.top + g.ch / 2));
+await tapToMenu();
 await menuReady();
 check('после миссии возвращаемся в меню', true);
 
@@ -208,7 +230,17 @@ const unlocked = await page.evaluate(
   () => window.__WORMS__.scene.getScene('Menu').buttons.storm?.enabled);
 check('следующая миссия открылась после победы', unlocked === true);
 
-for (const id of ['storm', 'siege']) {
+// Зерно каждой миссии закреплено, и плохое зерно делает её непроходимой:
+// бойцы в воде, стороны на разных островах или на расстоянии, которое не
+// перекрыть выстрелом. Дешевле проверить все восемь здесь, чем узнать об
+// этом от игрока, застрявшего на пятой.
+const CAMPAIGN = await page.evaluate(async () => {
+  const { MISSIONS } = await import('/src/campaign/missions.js');
+  return MISSIONS.map((m) => ({ id: m.id, sizes: m.teams.map((t) => t.worms) }));
+});
+check('в кампании восемь миссий', CAMPAIGN.length === 8, `${CAMPAIGN.length}`);
+
+for (const { id, sizes: expected } of CAMPAIGN) {
   await page.evaluate(async (missionId) => {
     const { campaignMatch } = await import('/src/core/match.js');
     const menu = window.__WORMS__.scene.getScene('Menu');
@@ -217,11 +249,12 @@ for (const id of ['storm', 'siege']) {
   await gameReady();
   await page.waitForTimeout(1400);
   const m = await info();
-  const expected = { storm: [2, 2], siege: [2, 3] }[id];
   check(`миссия «${id}»: карта играбельна`,
     m.sizes[0] === expected[0] && m.sizes[1] === expected[1] && m.aboveWater && m.alive
       === expected[0] + expected[1],
     `${m.sizes.join(' vs ')}, все на суше: ${m.aboveWater}`);
+  check(`миссия «${id}»: стороны в пределах выстрела`,
+    m.spread > 250 && m.spread < 1800, `${m.spread} px между крайними`);
   if (id === 'storm') {
     check('в «Шторме» ветер сильный', Math.abs(m.wind) >= 190, `${m.wind}`);
   }
