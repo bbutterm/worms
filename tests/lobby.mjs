@@ -107,6 +107,43 @@ check('в списке видно имя и рейтинг соседа',
   rosters[0].peers.length === 1 && /:\d{3,4}$/.test(rosters[0].peers[0]),
   rosters.map((r) => `${r.me} видит ${r.peers.join(',') || '—'}`).join(' | '));
 
+// --- открытые игры: A создаёт стол, B видит его и входит ---
+const hostId = await A.evaluate(() => {
+  const m = window.__WORMS__.scene.getScene('Menu');
+  m.createGame();
+  return m.lobby.me.id;
+});
+const tableSeen = await B.waitForFunction(
+  (id) => {
+    const m = window.__WORMS__.scene.getScene('Menu');
+    return m.lobby?.tables().some((t) => t.id === id) && Boolean(m.buttons[`join-${id}`]);
+  }, hostId, { timeout: 20000 },
+).then(() => true).catch(() => false);
+check('созданная игра видна соседу как стол с кнопкой «Войти»', tableSeen);
+const hostState = await A.evaluate(() => window.__WORMS__.scene.getScene('Menu').lobby.state);
+check('хозяин ждёт за столом', hostState === 'hosting', hostState);
+
+await B.evaluate((id) => window.__WORMS__.scene.getScene('Menu').joinTable(id), hostId);
+const bothIn = await Promise.all(pages.map((p) => p.waitForFunction(
+  () => window.__WORMS__?.scene.isActive('Game')
+    && window.__WORMS__.scene.getScene('Game').net?.connected === true,
+  null, { timeout: 40000 },
+).then(() => true).catch(() => false)));
+check('«Войти» отправляет в комнату обоих и они соединяются', bothIn.every(Boolean), bothIn.join(', '));
+const tableRooms = await Promise.all(pages.map((p) => call(p,
+  () => window.__WORMS__.scene.getScene('Game').room)));
+check('комната одна и та же', tableRooms[0] && tableRooms[0] === tableRooms[1], tableRooms.join(' / '));
+const busy = await Promise.all(pages.map((p) => call(p,
+  () => window.__WORMS__.registry.get('lobby')?.state)));
+check('в бою оба помечены «играет», стол пропал из лобби', busy.every((x) => x === 'playing'), busy.join(', '));
+
+// Обратно в меню — лобби снова свободно, дальше проверяем быстрый бой
+await Promise.all(pages.map((p) => call(p, () => window.__WORMS__.scene.getScene('Game').toMenu())));
+await Promise.all(pages.map(menuReady));
+await Promise.all(pages.map((p) => call(p, () => window.__WORMS__.scene.getScene('Menu').showOnline())));
+const freed = await Promise.all(pages.map((p) => call(p, () => window.__WORMS__.registry.get('lobby')?.state)));
+check('вернулись в меню — лобби свободно', freed.every((x) => x === 'idle'), freed.join(', '));
+
 // --- быстрый бой сводит обоих в одну комнату ---
 await Promise.all(pages.map((p) => call(p, () => {
   window.__WORMS__.scene.getScene('Menu').startSearch();

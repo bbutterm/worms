@@ -1,5 +1,6 @@
 import { player } from '../platform/player.js';
 import { findMatch, searchStatus } from './matchmaker.js';
+import { makeTransport } from './connect.js';
 
 /**
  * Лобби: кто сейчас онлайн и с кем свести.
@@ -16,6 +17,13 @@ import { findMatch, searchStatus } from './matchmaker.js';
  * Подбор без сервера и без арбитра: пару считает matchmaker.js из данных,
  * которые видят обе стороны, поэтому решение у них совпадает. Здесь только
  * присутствие, счётчик ожидания и вход в комнату.
+ *
+ * Открытые игры («столы», как в «Дураке»): кто нажал «Создать игру», шлёт
+ * в heartbeat код своей комнаты — и все в лобби видят его стол. «Войти»
+ * — это сообщение join с кодом комнаты: хозяин, услышав его, заходит в
+ * комнату, вошедший заходит сразу. Друг по ссылке минует лобби и попадает
+ * прямо в партию, поэтому игровая сцена стучится тем же join (knock),
+ * иначе хозяин, ждущий на экране стола, ничего бы не узнал.
  */
 
 const HEARTBEAT = 1500;   // мс между «я здесь»
@@ -25,8 +33,9 @@ export class Lobby {
   constructor(transport) {
     this.transport = transport;
     this.me = player();
-    this.peers = new Map();      // id -> { id, name, rating, state, waited, seen }
-    this.state = 'idle';         // idle | searching
+    this.peers = new Map();      // id -> { id, name, rating, state, waited, room, seen }
+    this.state = 'idle';         // idle | searching | hosting | playing
+    this.room = null;            // код своей открытой игры, пока hosting
     this.searchStart = 0;        // когда нажали «искать» — для ширины коридора
     this.onChange = null;        // сцена перерисовывает список
     this.onMatch = null;         // (room, opponent) — нашли пару
@@ -60,6 +69,7 @@ export class Lobby {
       rating: this.me.rating,
       state: this.state,
       waited: this.waited(),
+      room: this.state === 'hosting' ? this.room : undefined,
     });
     if (this.state === 'searching') this._tryMatch();
     this.onChange?.(this.list());
@@ -79,20 +89,79 @@ export class Lobby {
     if (msg.type === 'here' && msg.id && msg.id !== this.me.id) {
       this.peers.set(msg.id, {
         id: msg.id, name: msg.name, rating: msg.rating,
-        state: msg.state, waited: msg.waited ?? 0, seen: Date.now(),
+        state: msg.state, waited: msg.waited ?? 0, room: msg.room ?? null, seen: Date.now(),
       });
       if (this.state === 'searching') this._tryMatch();
       this.onChange?.(this.list());
       return;
     }
-    // Приглашение лично мне: соперник выбрал меня в списке
-    if (msg.type === 'invite' && msg.to === this.me.id) {
-      this._enter(msg.room, this.peers.get(msg.from) ?? { name: msg.name, rating: msg.rating });
+    // Кто-то вошёл в мою открытую игру — иду в комнату
+    if (msg.type === 'join' && this.state === 'hosting' && msg.room === this.room) {
+      const peer = this.peers.get(msg.from) ?? (msg.name ? { name: msg.name, rating: msg.rating } : null);
+      this._enter(this.room, peer);
     }
   }
 
   list() {
     return [...this.peers.values()].sort((a, b) => b.rating - a.rating);
+  }
+
+  /** Открытые игры: кто ждёт соперника за своим столом. */
+  tables() {
+    return [...this.peers.values()]
+      .filter((p) => p.state === 'hosting' && p.room)
+      .sort((a, b) => b.rating - a.rating);
+  }
+
+  /** Открыть свою игру: стол виден всем, ждём, пока кто-то войдёт. */
+  host(room) {
+    this.state = 'hosting';
+    this.room = room;
+    this.matched = null;
+    this.searchStart = 0;
+    this._beat();
+  }
+
+  /** Передумал ждать. */
+  unhost() {
+    if (this.state !== 'hosting') return;
+    this.state = 'idle';
+    this.room = null;
+    this._beat();
+  }
+
+  /** В бою: в списке виден, но не как стол и не как ищущий. */
+  busy() {
+    this.state = 'playing';
+    this.room = null;
+    this.searchStart = 0;
+  }
+
+  /** Снова в меню: можно искать, создавать и входить. */
+  idle() {
+    this.state = 'idle';
+    this.room = null;
+    this.searchStart = 0;
+    this.matched = null;
+  }
+
+  /**
+   * Войти в чужую открытую игру. Сообщение шлётся трижды: одно может
+   * потеряться, а хозяин, не услышав его, так и останется ждать.
+   */
+  join(peerId) {
+    const t = this.peers.get(peerId);
+    if (!t?.room || t.state !== 'hosting') return null;
+    const msg = {
+      type: 'join', room: t.room, from: this.me.id,
+      name: this.me.name, rating: this.me.rating,
+    };
+    this.transport.send(msg);
+    setTimeout(() => this.transport.send(msg), 1000);
+    setTimeout(() => this.transport.send(msg), 2500);
+    this.matched = null;
+    this._enter(t.room, t);
+    return t.room;
   }
 
   /** Только те, кто тоже ищет бой. */
@@ -116,20 +185,11 @@ export class Lobby {
     this._enter(roomFor(this.me.id, found.peer.id), found.peer);
   }
 
-  /** Позвать конкретного игрока из списка. */
-  invite(peerId) {
-    const room = roomFor(this.me.id, peerId);
-    this.transport.send({
-      type: 'invite', to: peerId, from: this.me.id,
-      name: this.me.name, rating: this.me.rating, room,
-    });
-    this._enter(room, this.peers.get(peerId));
-  }
-
   _enter(room, opponent) {
     if (this.matched) return;
     this.matched = room;
     this.state = 'idle';
+    this.room = null;
     this.searchStart = 0;
     this.onMatch?.(room, opponent ?? null);
   }
@@ -137,6 +197,27 @@ export class Lobby {
   destroy() {
     clearInterval(this.timer);
     this.transport.close();
+  }
+}
+
+/**
+ * Постучаться в комнату через лобби — для того, кто пришёл по ссылке,
+ * минуя лобби: хозяин ждёт на экране стола и слушает только join. Своего
+ * лобби у такого игрока нет, поэтому канал открывается на несколько
+ * секунд и закрывается.
+ */
+export async function knock(room) {
+  const me = player();
+  const msg = { type: 'join', room, from: me.id, name: me.name, rating: me.rating };
+  try {
+    const transport = await makeTransport();
+    await transport.connect('lobby', () => {});
+    transport.send(msg);
+    setTimeout(() => transport.send(msg), 1000);
+    setTimeout(() => transport.send(msg), 2500);
+    setTimeout(() => transport.close(), 4000);
+  } catch (e) {
+    console.warn('[лобби] постучаться не вышло', e);
   }
 }
 

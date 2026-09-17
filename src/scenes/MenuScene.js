@@ -38,6 +38,8 @@ export default class MenuScene extends Phaser.Scene {
     this.buttons = {};
 
     this.cameras.main.setBackgroundColor('#0d1220');
+    // Вернулись в меню — в лобби мы снова свободны
+    this.lobby?.idle();
     const f = CFG.FRAME;
     this.uiCam = this.cameras.add(f.left, f.top, CFG.VIEW_W, CFG.VIEW_H);
     this._measure();
@@ -161,7 +163,7 @@ export default class MenuScene extends Phaser.Scene {
    * Кнопка меню. Ширина фиксированная, чтобы столбец читался как список,
    * а не как набор разных плашек.
    */
-  _button(key, x, y, label, hint, onTap, { w = 420, h = 66, variant = 'normal', enabled = true } = {}) {
+  _button(key, x, y, label, hint, onTap, { w = 420, h = 66, variant = 'normal', enabled = true, into = null } = {}) {
     const texKey = `menu-btn-${w}x${h}-${variant}`;
     ensureButton(this, texKey, w, h, variant);
     const img = this.add.image(x, y, texKey).setOrigin(0.5);
@@ -171,10 +173,12 @@ export default class MenuScene extends Phaser.Scene {
     const title = this.add.text(x, hint ? y - 10 : y, label,
       font(hint ? 20 : 22, 800, enabled ? UI.text : UI.textDim)).setOrigin(0.5).setAlpha(alpha);
     this.items.push(img, title);
+    into?.push(img, title);
     if (hint) {
       const sub = this.add.text(x, y + 15, hint, font(12, 700, UI.textDim))
         .setOrigin(0.5).setAlpha(alpha);
       this.items.push(sub);
+      into?.push(sub);
     }
 
     if (enabled) {
@@ -357,32 +361,24 @@ export default class MenuScene extends Phaser.Scene {
       .setOrigin(0.5, 0));
 
     // 262, а не 250: строка побед/поражений над кнопками заезжала под
-    // верхний край «Быстрого боя»
+    // верхний край первой кнопки
     const y0 = 262, step = 74;
-    this._button('quickmatch', cx, y0, 'Быстрый бой', 'подобрать соперника по рейтингу',
-      () => this.startSearch(), { variant: 'primary' });
-    this._button('friend', cx, y0 + step, 'Играть с другом', 'по коду комнаты',
-      () => this.showFriend());
-    this.items.push(this.add.text(cx, y0 + step * 2 - 8, this.lobbyNote ?? '',
-      font(12, 700, UI.textDim)).setOrigin(0.5, 0));
+    this._button('create', cx, y0, 'Создать игру', 'стол увидят все в лобби, можно позвать друга',
+      () => this.createGame(), { variant: 'primary' });
+    this._button('quickmatch', cx, y0 + step, 'Быстрый бой', 'подобрать соперника по рейтингу',
+      () => this.startSearch());
+    // Код от друга — редкий путь, кнопка маленькая и внизу
+    this._button('join', this.W - 108, this.bottomY(46), 'по коду', '',
+      () => this.askCode(), { w: 180, h: 50 });
 
     this._back();
     this._ensureLobby();
+    this._showTables(this.lobby?.tables() ?? []);
   }
 
-  /** Раздел «с другом» — то, что раньше было всем разделом «онлайн». */
-  showFriend() {
-    this.section = this.showFriend;
-    this._clear();
-    this._title('Игра с другом', 'по коду комнаты');
-    const cx = this.W / 2;
-    const y0 = 200, step = 80;
-
-    this._button('create', cx, y0, 'Создать комнату', 'код и ссылка для друга',
-      () => this.showRoom(randomRoom()), { variant: 'primary' });
-    this._button('join', cx, y0 + step, 'Войти по коду', 'если код прислали тебе',
-      () => this.askCode());
-    this._back(() => this.showOnline());
+  /** Своя открытая игра: комната случайная, стол виден в лобби. */
+  createGame() {
+    this.showRoom(randomRoom());
   }
 
   /**
@@ -394,12 +390,16 @@ export default class MenuScene extends Phaser.Scene {
     this.lobbyStarting = true;
     try {
       this.lobby = new Lobby(await makeTransport());
-      this.lobby.onChange = (list) => this._showPlayers(list);
+      this.lobby.onChange = () => this._showTables(this.lobby.tables());
       this.lobby.onMatch = (room, opponent) => {
         this.lobbyNote = opponent ? `соперник: ${opponent.name}` : '';
         this.startOnline(room);
       };
+      // Игровая сцена по нему узнаёт, что лобби есть, и отмечает «в бою»
+      this.registry.set('lobby', this.lobby);
       await this.lobby.start();
+      // Стол открыли раньше, чем лобби поднялось
+      if (this.hosting) this.lobby.host(this.hosting);
     } catch (e) {
       console.warn('[лобби] не поднялось', e);
       this.lobbyNote = 'сеть недоступна — играть можно по коду комнаты';
@@ -409,36 +409,47 @@ export default class MenuScene extends Phaser.Scene {
     }
   }
 
-  /** Список тех, кто сейчас в лобби. Тап по строке — позвать в бой. */
-  _showPlayers(list) {
-    if (this.section !== this.showOnline && this.section !== this.startSearch) return;
+  /**
+   * Открытые игры, как столы в «Дураке»: хозяин, лига, кнопка «Войти».
+   * Список под кнопками в обеих ориентациях; в ландшафте влезает три-четыре
+   * строки, в портрете — все.
+   */
+  _showTables(tables) {
+    if (this.section !== this.showOnline) return;
     for (const o of this.playerRows ?? []) o.destroy();
     this.playerRows = [];
+    const rows = this.playerRows;
 
-    // В ландшафте список стоит справа от кнопок; в портрете справа места
-    // нет — он уходит под кнопки, там высоты хватает
-    const searching = this.section === this.startSearch;
-    const x = this.portrait ? this.W / 2 - 210 : this.W - 250;
-    const top = this.portrait ? (searching ? 380 : 470) : 120;
-    const head = this.add.text(x, top, `в сети: ${list.length + 1}`,
+    const cx = this.W / 2;
+    const x = cx - 210;
+    const top = 420;
+    const online = (this.lobby?.list().length ?? 0) + 1;
+    const head = this.add.text(x, top, `Открытые игры · в сети ${online}`,
       font(13, 800, UI.accent)).setOrigin(0, 0);
-    this.playerRows.push(head);
+    rows.push(head);
 
-    list.slice(0, 7).forEach((p, i) => {
-      const y = top + 28 + i * 34;
-      const seeks = p.state === 'searching';
-      const row = this.add.text(x, y, p.name,
-        font(13, 800, seeks ? UI.text : UI.textDim)).setOrigin(0, 0);
-      row.setInteractive({ useHandCursor: true });
-      row.on('pointerdown', () => this.lobby?.invite(p.id));
-      // Лига под именем: с кем сводит подбор, видно до боя, а не после
-      const sub = this.add.text(x, y + 15,
-        `${leagueLabel(p.rating)}${seeks ? ' · ищет бой' : ''}`,
-        font(11, 700, leagueOf(p.rating).text)).setOrigin(0, 0).setAlpha(seeks ? 1 : 0.6);
-      this.playerRows.push(row, sub);
+    if (!tables.length) {
+      rows.push(this.add.text(x, top + 28, this.lobbyNote || 'пока никто не создал игру — создай свою',
+        font(12, 700, UI.textDim)).setOrigin(0, 0));
+    }
+
+    const step = 40;
+    const maxRows = Math.max(1, Math.floor((this.bottomY(70) - (top + 28)) / step));
+    tables.slice(0, maxRows).forEach((t, i) => {
+      const y = top + 28 + i * step;
+      rows.push(this.add.text(x, y, t.name, font(14, 800, UI.text)).setOrigin(0, 0));
+      rows.push(this.add.text(x, y + 17, leagueLabel(t.rating),
+        font(11, 700, leagueOf(t.rating).text)).setOrigin(0, 0));
+      this._button(`join-${t.id}`, cx + 160, y + 15, 'Войти', '',
+        () => this.joinTable(t.id), { w: 100, h: 34, into: rows });
     });
     // Строки живут отдельно от items: список обновляется чаще, чем раздел
-    for (const o of this.playerRows) this.items.push(o);
+    for (const o of rows) this.items.push(o);
+  }
+
+  /** Войти в чужую открытую игру: лобби само отправит в комнату. */
+  joinTable(peerId) {
+    return this.lobby?.join(peerId) ?? null;
   }
 
   /** Поиск боя: ждём, пока лобби сведёт нас с кем-нибудь. */
@@ -467,7 +478,6 @@ export default class MenuScene extends Phaser.Scene {
 
     this._ensureLobby();
     this.lobby?.search(true);
-    if (this.lobby) this._showPlayers(this.lobby.list());
     this._startSearchTicker();
   }
 
@@ -499,31 +509,45 @@ export default class MenuScene extends Phaser.Scene {
     if (code) this.startOnline(code);
   }
 
-  /** Комната создана: показываем код крупно, ссылку кладём в буфер. */
+  /**
+   * Игра создана: стол виден в лобби, код и ссылка — для друга. Хозяин
+   * ждёт здесь; как только кто-то войдёт (из лобби или по ссылке), лобби
+   * отправит обоих в комнату.
+   */
   showRoom(room) {
     this.section = () => this.showRoom(room);
     this._clear();
-    this._title('Комната создана', 'дай другу код или ссылку');
+    this._title('Игра создана', 'ждём соперника: стол виден всем в лобби');
     const cx = this.W / 2;
 
-    const code = this.add.text(cx, 190, room, font(72, 800, UI.accent)).setOrigin(0.5, 0);
+    this.hosting = room;
+    this._ensureLobby();
+    this.lobby?.host(room);
+
+    const code = this.add.text(cx, 176, room, font(72, 800, UI.accent)).setOrigin(0.5, 0);
     this.items.push(code);
+    this.items.push(this.add.text(cx, 268, 'код для друга', font(12, 700, UI.textDim)).setOrigin(0.5, 0));
 
     const link = this.inviteLink(room);
     // В Telegram зовём родным выбором чата, снаружи — буфером обмена
-    this._button('copy', cx, 320, 'Позвать друга', '',
+    this._button('copy', cx, 330, 'Позвать друга', '',
       () => {
         if (shareRoom(room, link)) return;
         copyText(link);
         // Подтверждение одно на все нажатия: иначе оно множится стопкой
         if (this.copiedLabel) return;
-        this.copiedLabel = this.add.text(cx, 366, 'скопировано', font(13, 700, '#8ef0a0'))
+        this.copiedLabel = this.add.text(cx, 372, 'ссылка скопирована', font(13, 700, '#8ef0a0'))
           .setOrigin(0.5, 0);
         this.items.push(this.copiedLabel);
-      }, { w: 340, h: 58 });
-    this._button('enter', cx, 404, 'Войти в комнату', 'ждать соперника',
-      () => this.startOnline(room), { variant: 'primary', w: 340, h: 62 });
-    this._back(() => this.showOnline());
+      }, { w: 340, h: 58, variant: 'primary' });
+    this.items.push(this.add.text(cx, 404, 'ждём соперника…', font(15, 800, UI.accent)).setOrigin(0.5, 0));
+    // Запасной путь, если лобби не поднялось: ждать внутри комнаты
+    this._button('enter', cx, 462, 'Войти в комнату самому', 'ждать соперника внутри',
+      () => this.startOnline(room), { w: 340, h: 56 });
+
+    const leave = () => { this.hosting = null; this.lobby?.unhost(); this.showOnline(); };
+    this._button('cancel', this.W - 108, this.bottomY(46), 'Отменить', '', leave, { w: 180, h: 50 });
+    this._back(leave);
   }
 
   inviteLink(room) {
@@ -537,6 +561,8 @@ export default class MenuScene extends Phaser.Scene {
    * -приглашение и так же партия переживает перезагрузку страницы.
    */
   startOnline(room) {
+    this.hosting = null;
+    this.lobby?.busy();
     const url = new URL(location.href);
     url.searchParams.set('room', room);
     history.replaceState(null, '', url);

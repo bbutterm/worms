@@ -14,6 +14,7 @@ import { font, UI, ensureButton } from '../ui/theme.js';
 import { WEAPONS } from '../weapons/index.js';
 import { captureCommand } from '../net/protocol.js';
 import { NetSession } from '../net/session.js';
+import { knock } from '../net/lobby.js';
 import { randomRoom, copyText } from '../net/transport.js';
 import { makeTransport } from '../net/connect.js';
 import { startRoom, shareRoom, haptic, inviteLink, offerHomeScreenOnce, setBattle } from '../platform/telegram.js';
@@ -210,6 +211,9 @@ export default class GameScene extends Phaser.Scene {
       this.net = new NetSession(this, transport, room);
       this.net.onStatus = (text) => this._netStatus(text);
       this.registry.set('net', this.net);
+      // Пришли по ссылке, минуя лобби: хозяин может ждать на экране стола
+      // и услышит только стук через лобби
+      if (!this.registry.get('lobby')) knock(room);
       return this.net.start();
     }).catch((e) => {
       console.warn('[net] не удалось подключиться', e);
@@ -234,6 +238,8 @@ export default class GameScene extends Phaser.Scene {
   /** Спарились: перезапускаем партию с общим зерном. */
   startNetMatch(seed, myTeam) {
     this.myTeam = myTeam;
+    // Спарились — в лобби мы больше не стол и не ищущий
+    this.registry.get('lobby')?.busy();
     this.registry.set('seed', seed);
     this.gameOverUi = null;
     // Перезапуск безусловный: к моменту встречи локальная партия уже могла

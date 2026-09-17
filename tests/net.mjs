@@ -47,19 +47,26 @@ for (let i = 0; i < 2; i++) {
     if (t.startsWith('[net] состояние разошлось')) errors.push(`[${i}] ${t}`);
   });
 
-  // Страница отдаёт сообщение сюда, тест кладёт его второй странице
-  await page.exposeFunction('__netOut', (msg) => {
+  // Страница отдаёт сообщение сюда, тест кладёт его второй странице.
+  // Ящики — по каналам: кроме комнаты игровая сцена коротко открывает
+  // канал лобби (стук хозяину стола), и он не должен перетирать партию.
+  await page.exposeFunction('__netOut', (room, msg) => {
     const other = 1 - i;
     setTimeout(() => {
-      pages[other]?.evaluate((m) => globalThis.__netIn?.(m), msg).catch(() => {});
+      pages[other]?.evaluate(([r, m]) => globalThis.__netIn?.(r, m), [room, msg]).catch(() => {});
     }, LAG);
   });
   await page.addInitScript(() => {
+    globalThis.__inboxes = new Map();
+    globalThis.__netIn = (room, msg) => globalThis.__inboxes.get(room)?.(msg);
     globalThis.WORMS_TRANSPORT = () => ({
       id: `p${Math.random().toString(36).slice(2, 8)}`,
-      async connect(room, onMessage) { globalThis.__netIn = onMessage; },
-      send(msg) { globalThis.__netOut({ ...msg, from: this.id }); },
-      close() { globalThis.__netIn = null; },
+      async connect(room, onMessage) {
+        this.room = room;
+        globalThis.__inboxes.set(room, onMessage);
+      },
+      send(msg) { globalThis.__netOut(this.room, { ...msg, from: this.id }); },
+      close() { globalThis.__inboxes.delete(this.room); },
     });
   });
 
