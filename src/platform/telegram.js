@@ -19,7 +19,7 @@
  * app нужен, только если Mini App заведён через /newapp, а не как главный.
  */
 export const TELEGRAM = {
-  bot: '',
+  bot: 'Cybercouch77bot',
   app: '',
 };
 
