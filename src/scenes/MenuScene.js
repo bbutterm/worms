@@ -237,8 +237,19 @@ export default class MenuScene extends Phaser.Scene {
         () => addToHomeScreen(), { w: 228, h: 50 });
     }
 
-    this.items.push(this.add.text(this.W - 16, this.bottomY(14),
-      'бой — в ландшафте · звука нет', font(11, 700, UI.textDim)).setOrigin(1, 1));
+    // Пять тапов по подписи — диагностика экрана (index.html): что видит
+    // страница на самом деле, когда с телефона приходит «не весь экран»
+    const foot = this.add.text(this.W - 16, this.bottomY(14),
+      'бой — в ландшафте · звука нет', font(11, 700, UI.textDim)).setOrigin(1, 1);
+    foot.setInteractive();
+    foot.on('pointerdown', () => {
+      this.diagTaps = (this.diagTaps ?? 0) + 1;
+      if (this.diagTaps % 5 === 0) {
+        this.diagOn = !this.diagOn;
+        globalThis.__diag?.(this.diagOn);
+      }
+    });
+    this.items.push(foot);
   }
 
   // ------------------------------------------------------- быстрая игра

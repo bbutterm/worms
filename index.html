@@ -59,6 +59,14 @@
   /* Канвас на весь экран, включая «чёлку» и полосу под кнопками Telegram:
      мир рисуется до краёв, а интерфейс сам отступает внутрь (CFG.FRAME). */
   #game { position: fixed; inset: 0; }
+  #game canvas { touch-action: none; }
+  /* Диагностика экрана: включается пятью тапами по подписи внизу меню */
+  #diag {
+    position: fixed; left: 8px; top: 8px; z-index: 30; display: none;
+    padding: 8px 10px; background: rgba(0,0,0,0.75); color: #9fe0a0;
+    font: 11px/1.4 ui-monospace, Menlo, monospace; white-space: pre;
+    pointer-events: none; border-radius: 6px;
+  }
   /* Щуп для безопасной области вне Telegram: JS читает env() через него */
   #safe-probe {
     position: fixed; visibility: hidden; pointer-events: none;
@@ -103,6 +111,66 @@
   <div>Поверни телефон горизонтально</div>
 </div>
 <div id="fatal"></div>
+<div id="diag"></div>
+
+<!-- Зум страницы. iOS игнорирует user-scalable=no, а щипок двумя пальцами
+     в игре — это зум камеры; без этого он увеличивал саму страницу, и
+     интерфейс уезжал за экран. Жест гасим сами, а если страница всё же
+     увеличилась — сбрасываем масштаб перезаписью viewport. -->
+<script>
+  (function () {
+    var stop = function (e) { e.preventDefault(); };
+    document.addEventListener('gesturestart', stop, { passive: false });
+    document.addEventListener('gesturechange', stop, { passive: false });
+    document.addEventListener('gestureend', stop, { passive: false });
+    document.addEventListener('touchmove', function (e) {
+      if (e.scale !== undefined && e.scale !== 1) e.preventDefault();
+    }, { passive: false });
+
+    var vv = window.visualViewport;
+    if (vv) {
+      var meta = document.querySelector('meta[name="viewport"]');
+      var resetting = false;
+      vv.addEventListener('resize', function () {
+        if (vv.scale <= 1.01 || resetting || !meta) return;
+        resetting = true;
+        var was = meta.content;
+        meta.content = was.replace('maximum-scale=1', 'maximum-scale=1.0001');
+        setTimeout(function () { meta.content = was; resetting = false; }, 60);
+        window.scrollTo(0, 0);
+      });
+    }
+
+    // Диагностика: что видит страница на самом деле
+    var el = document.getElementById('diag');
+    var timer = 0;
+    function render() {
+      var tg = window.Telegram && window.Telegram.WebApp;
+      var c = document.querySelector('#game canvas');
+      var r = c ? c.getBoundingClientRect() : null;
+      var g = window.__WORMS__;
+      var f = (x) => Math.round(x);
+      var j = (o) => (o ? [f(o.top), f(o.right), f(o.bottom), f(o.left)].join('/') : '-');
+      el.textContent = [
+        'inner ' + innerWidth + 'x' + innerHeight + '  dpr ' + devicePixelRatio,
+        'visual ' + (vv ? f(vv.width) + 'x' + f(vv.height) + ' scale ' + vv.scale.toFixed(3)
+          + ' off ' + f(vv.offsetLeft) + ',' + f(vv.offsetTop) : '-'),
+        'screen ' + screen.width + 'x' + screen.height + '  scroll ' + scrollX + ',' + scrollY,
+        'tg ' + (tg ? 'v' + tg.version + ' vh ' + f(tg.viewportHeight) + ' stable ' + f(tg.viewportStableHeight)
+          + ' full ' + tg.isFullscreen : 'нет'),
+        'safe t/r/b/l ' + (tg ? j(tg.safeAreaInset) : '-') + '  content ' + (tg ? j(tg.contentSafeAreaInset) : '-'),
+        'canvas ' + (r ? f(r.left) + ',' + f(r.top) + ' ' + f(r.width) + 'x' + f(r.height) : '-')
+          + '  game ' + (g ? g.scale.width + 'x' + g.scale.height : '-'),
+        'frame ' + (window.__WORMS_FRAME__ ? j(window.__WORMS_FRAME__) : '-'),
+      ].join('\n');
+    }
+    window.__diag = function (on) {
+      clearInterval(timer);
+      el.style.display = on ? 'block' : 'none';
+      if (on) { render(); timer = setInterval(render, 500); }
+    };
+  })();
+</script>
 
 <!-- Telegram WebApp SDK: no-op в обычном браузере -->
 <script src="https://telegram.org/js/telegram-web-app.js"></script>

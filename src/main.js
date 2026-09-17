@@ -69,6 +69,7 @@ const game = new Phaser.Game({
 });
 
 window.__WORMS__ = game;
+window.__WORMS_FRAME__ = CFG.FRAME;   // для диагностики экрана (index.html)
 
 /**
  * Пересчёт размера при смене экрана.
@@ -84,15 +85,19 @@ window.__WORMS__ = game;
  */
 let refitTimer = 0;
 function refit() {
-  const before = CFG.VIEW_W;
+  const sizeBefore = canvasSize().join('x');
+  const wBefore = CFG.VIEW_W;
   fitViewToScreen(window.innerWidth, window.innerHeight, screenInsets());
-  // Сдвиг игрового поля меняет его размер без события resize у окна:
-  // Phaser надо попросить перемерить родителя самому
-  game.scale.refresh();
-  if (Math.abs(CFG.VIEW_W - before) < 24) return;
+  const size = canvasSize();
+  // Рамка меняется скачком (Telegram прислал отступы, повернули телефон):
+  // её не игнорируем, мелкие колебания ширины — да
+  if (Math.abs(CFG.VIEW_W - wBefore) < 24 && size.join('x') === sizeBefore) return;
   // Именно setGameSize: resize() меняет размер, но не пересчитывает
   // пропорции, под которые вписывается канвас, — поля остаются на месте.
-  game.scale.setGameSize(CFG.VIEW_W, CFG.VIEW_H);
+  // И размер — канваса, с рамкой: логический без рамки оставлял камеру
+  // интерфейса торчать за край канваса, и HUD резался справа и снизу.
+  game.scale.setGameSize(size[0], size[1]);
+  window.__WORMS_FRAME__ = CFG.FRAME;
   game.events.emit('worms-resize', CFG.VIEW_W, CFG.VIEW_H);
 }
 function scheduleRefit(delay) {

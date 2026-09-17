@@ -275,6 +275,28 @@ await portrait.evaluate(() => window.__WORMS__.scene.getScene('Menu').start({
 await gameReady(portrait);
 pc = await calls(portrait);
 check('начался бой в ландшафте — ориентация держится', pc.includes('lockOrientation'), pc.join(', '));
+
+// После поворота (а это обычный путь: открыли в портрете, повернули) канвас
+// обязан остаться экраном плюс рамка, а камера интерфейса — целиком внутри
+// канваса. Раньше пересчёт ставил размер без рамки, и HUD резался справа
+// и снизу.
+const fit = await portrait.evaluate(() => {
+  const g = window.__WORMS__;
+  const s = g.scene.getScene('Game');
+  const ui = s.rig.uiCam;
+  const r = g.canvas.getBoundingClientRect();
+  const fire = s.hud.buttons.fire;
+  return {
+    game: `${g.scale.width}x${g.scale.height}`, ui: `${ui.x},${ui.y} ${ui.width}x${ui.height}`,
+    inside: ui.x + ui.width <= g.scale.width && ui.y + ui.height <= g.scale.height,
+    full: Math.abs(r.width - innerWidth) < 2 && Math.abs(r.height - innerHeight) < 2,
+    fireOnScreen: fire ? (ui.x + fire.x) * (r.width / g.scale.width) < innerWidth
+      && (ui.y + fire.y) * (r.height / g.scale.height) < innerHeight : false,
+  };
+});
+check('после поворота канвас — экран плюс рамка, интерфейс внутри канваса',
+  fit.inside && fit.full, `канвас ${fit.game}, интерфейс ${fit.ui}`);
+check('кнопка «Огонь» после поворота на экране', fit.fireOnScreen);
 await portrait.evaluate(() => window.__WORMS__.scene.getScene('Game').toMenu());
 await menuReady(portrait);
 pc = await calls(portrait);
