@@ -127,20 +127,53 @@ const px = (x, y) => [
 check('логическая ширина подогнана под экран', view.w >= 1280 && view.h === 720,
   `${view.w}x${view.h}`);
 
-// Страницу часто открывают в портрете и поворачивают телефон уже потом.
-// Размер считается один раз при запуске, поэтому в портрете он обязан
-// считаться по ландшафтной стороне — иначе после поворота останутся чёрные
-// поля по бокам. Проверяем на пропорциях того же iPhone: 1179x2556.
+// Меню и лобби работают в портрете: там своя логическая высота при ширине
+// 720, и просьбы повернуть телефон в меню нет — она появляется только в
+// бою. Проверяем на пропорциях iPhone: 1179x2556.
 const portrait = await browser.newPage({ viewport: { width: 393, height: 852 } });
 await portrait.goto(`${URL}/?biome=${BIOME}${seedParam}`, { waitUntil: 'domcontentloaded' });
-await portrait.waitForFunction(() => window.__WORMS__?.scale?.width, null, { timeout: 40000 });
-const portraitSize = await portrait.evaluate(
-  () => ({ w: window.__WORMS__.scale.width, h: window.__WORMS__.scale.height }),
-);
-await portrait.close();
+await portrait.waitForFunction(() => window.__WORMS__?.scene.isActive('Menu')
+  && Object.keys(window.__WORMS__.scene.getScene('Menu').buttons).length > 0, null, { timeout: 40000 });
+const portraitMenu = await portrait.evaluate(() => {
+  const g = window.__WORMS__;
+  const m = g.scene.getScene('Menu');
+  const r = g.canvas.getBoundingClientRect();
+  return {
+    w: g.scale.width, h: g.scale.height,
+    ratio: Math.abs(r.width / r.height - g.scale.width / g.scale.height),
+    rotate: getComputedStyle(document.getElementById('rotate')).display,
+    // Кнопки центрированы по вертикали, а не прижаты к верху
+    quickY: m.buttons.quick.y, backY: null,
+  };
+});
 // 852/393 ≈ 2.168 → 720 * 2.168 ≈ 1561
-check('в портрете размер считается по ландшафтной стороне',
-  portraitSize.w > 1500 && portraitSize.h === 720, `${portraitSize.w}x${portraitSize.h}`);
+check('в портрете логический размер портретный, без полей',
+  portraitMenu.w === 720 && portraitMenu.h > 1500 && portraitMenu.ratio < 0.02,
+  `${portraitMenu.w}x${portraitMenu.h}, расхождение ${portraitMenu.ratio.toFixed(3)}`);
+check('в портрете меню работает, «поверни телефон» не показывается',
+  portraitMenu.rotate === 'none', portraitMenu.rotate);
+check('в портрете меню центрировано по вертикали',
+  portraitMenu.quickY > portraitMenu.h * 0.3 && portraitMenu.quickY < portraitMenu.h * 0.7,
+  `кнопка на ${portraitMenu.quickY} из ${portraitMenu.h}`);
+
+// Бой в портрете просит повернуть, а после поворота размер ландшафтный
+await portrait.evaluate(() => window.__WORMS__.scene.getScene('Menu').start({
+  mode: 'quick', teams: [{ worms: 2, control: 'human' }, { worms: 2, control: 'human' }], rules: {},
+}));
+await portrait.waitForFunction(() => window.__WORMS__?.scene.isActive('Game'), null, { timeout: 40000 });
+const rotateInBattle = await portrait.evaluate(
+  () => getComputedStyle(document.getElementById('rotate')).display);
+check('бой в портрете просит повернуть телефон', rotateInBattle === 'flex', rotateInBattle);
+await portrait.setViewportSize({ width: 852, height: 393 });
+await portrait.waitForTimeout(900);
+const rotated = await portrait.evaluate(() => ({
+  w: window.__WORMS__.scale.width, h: window.__WORMS__.scale.height,
+  rotate: getComputedStyle(document.getElementById('rotate')).display,
+}));
+check('после поворота бой в ландшафте 1561x720 и подсказка убрана',
+  rotated.w > 1500 && rotated.h === 720 && rotated.rotate === 'none',
+  `${rotated.w}x${rotated.h}, подсказка ${rotated.rotate}`);
+await portrait.close();
 
 // Экран меняется уже после запуска: на телефоне уезжает панель браузера,
 // телефон поворачивают. Размер обязан пересчитаться, иначе Scale.FIT

@@ -136,8 +136,8 @@ const page = await openPage({
 await menuReady(page);
 
 const boot = await calls(page);
-check('при запуске: ready, expand, полный экран, блокировка поворота',
-  ['ready', 'expand', 'requestFullscreen', 'lockOrientation'].every((c) => boot.includes(c)),
+check('при запуске: ready, expand, полный экран; в меню ориентация свободна',
+  ['ready', 'expand', 'requestFullscreen'].every((c) => boot.includes(c)) && !boot.includes('lockOrientation'),
   boot.join(', '));
 
 const me = await page.evaluate(() => {
@@ -251,18 +251,35 @@ await page.close();
 
 // ------------------------------------------------- запуск в портрете
 
-// Игру открывают в портрете и поворачивают потом. Если зафиксировать
-// ориентацию сразу, Telegram удержит портрет и поворот не сработает.
+// Меню и лобби живут в любой ориентации, держится только бой в ландшафте.
+// lockOrientation фиксирует ТЕКУЩУЮ ориентацию, поэтому в портрете и в
+// меню его звать нельзя — иначе повернуть будет невозможно.
 const portrait = await openPage({ viewport: { width: 430, height: 932 } });
 await menuReady(portrait);
 let pc = await calls(portrait);
 check('в портрете ориентация не фиксируется — можно повернуть',
   !pc.includes('lockOrientation') && pc.includes('unlockOrientation'), pc.join(', '));
+const pm = await portrait.evaluate(() => {
+  const m = window.__WORMS__.scene.getScene('Menu');
+  return { w: m.W, h: m.H, uiW: m.uiCam.width, uiH: m.uiCam.height };
+});
+check('меню в портрете: ширина 720, интерфейс на всю высоту',
+  pm.w === 720 && pm.h > 1000 && pm.uiW === 720 && pm.uiH === pm.h, `${pm.w}x${pm.h}`);
 await portrait.setViewportSize({ width: 932, height: 430 });
-await portrait.waitForFunction(() => Telegram.WebApp.__calls.includes('lockOrientation'), null, { timeout: 5000 })
-  .catch(() => {});
+await portrait.waitForTimeout(700);
 pc = await calls(portrait);
-check('повернули — ландшафт фиксируется', pc.includes('lockOrientation'), pc.join(', '));
+check('повернули в меню — ориентация всё ещё свободна', !pc.includes('lockOrientation'), pc.join(', '));
+await portrait.evaluate(() => window.__WORMS__.scene.getScene('Menu').start({
+  mode: 'quick', teams: [{ worms: 2, control: 'human' }, { worms: 2, control: 'human' }], rules: {},
+}));
+await gameReady(portrait);
+pc = await calls(portrait);
+check('начался бой в ландшафте — ориентация держится', pc.includes('lockOrientation'), pc.join(', '));
+await portrait.evaluate(() => window.__WORMS__.scene.getScene('Game').toMenu());
+await menuReady(portrait);
+pc = await calls(portrait);
+check('вышли в меню — отпущена', pc.lastIndexOf('unlockOrientation') > pc.lastIndexOf('lockOrientation'),
+  pc.slice(-3).join(', '));
 await portrait.close();
 
 // ------------------------------------------- вход по ссылке-приглашению

@@ -5,8 +5,10 @@ export const CFG = {
   // фиксирована, поэтому геометрия мира от устройства не зависит.
   VIEW_W: 1280,
   VIEW_H: 720,
+  VIEW_BASE: 720,          // высота в ландшафте и ширина в портрете; от неё считается масштаб
   VIEW_W_MIN: 1280,        // уже — незачем, поля появятся только на квадратных экранах
   VIEW_W_MAX: 2200,        // шире — интерфейс расползается, а мир 3200 кончается
+  VIEW_H_MAX: 2400,        // портрет: выше — незачем
   // Рамка вокруг логического экрана, в логических пикселях: безопасная
   // область («чёлка», кнопки Telegram). Канвас на весь экран, мир и небо
   // рисуются до краёв, а интерфейс живёт внутри рамки. См. fitViewToScreen.
@@ -142,25 +144,29 @@ export const CFG = {
  */
 export function fitViewToScreen(screenW, screenH, inset = null) {
   if (!screenW || !screenH) return CFG.VIEW_W;
-  // Отступы безопасной области известны только для текущей ориентации,
-  // а в портрете они всё равно не нужны: игра просит повернуть телефон.
-  const portrait = screenH > screenW;
-  const i = !portrait && inset ? inset : { left: 0, top: 0, right: 0, bottom: 0 };
+  const i = inset ?? { left: 0, top: 0, right: 0, bottom: 0 };
   const safeW = Math.max(1, screenW - i.left - i.right);
   const safeH = Math.max(1, screenH - i.top - i.bottom);
+  const portrait = safeH > safeW;
 
-  // Считаем всегда по ландшафтной стороне, даже если страницу открыли в
-  // портрете. Игра ландшафтная, в портрете она просит повернуть телефон —
-  // и если посчитать по портретным пропорциям, ширина упрётся в минимум
-  // (1280 = 16:9), а после поворота останутся чёрные поля по бокам.
+  // Масштаб один в обеих ориентациях: короткая сторона безопасной области
+  // — это VIEW_BASE логических пикселей, боец и кнопки одного размера, как
+  // ни держи телефон. В ландшафте фиксирована высота и растёт ширина, в
+  // портрете наоборот: там живут меню и лобби, а бой просит повернуть.
+  // При повороте размер пересчитывается (main.js), второй раз — не в ущерб.
   const long = Math.max(safeW, safeH);
   const short = Math.min(safeW, safeH);
-  const wanted = Math.round(CFG.VIEW_H * (long / short));
-  CFG.VIEW_W = Math.max(CFG.VIEW_W_MIN, Math.min(CFG.VIEW_W_MAX, wanted));
+  const wanted = Math.round(CFG.VIEW_BASE * (long / short));
+  if (portrait) {
+    CFG.VIEW_W = CFG.VIEW_BASE;
+    CFG.VIEW_H = Math.max(CFG.VIEW_BASE, Math.min(CFG.VIEW_H_MAX, wanted));
+  } else {
+    CFG.VIEW_H = CFG.VIEW_BASE;
+    CFG.VIEW_W = Math.max(CFG.VIEW_W_MIN, Math.min(CFG.VIEW_W_MAX, wanted));
+  }
 
-  // Рамка: те же отступы в логических пикселях. Масштаб один на всё —
-  // высота безопасной области и есть VIEW_H.
-  const k = CFG.VIEW_H / short;
+  // Рамка: те же отступы в логических пикселях.
+  const k = CFG.VIEW_BASE / short;
   CFG.FRAME = {
     left: Math.round(i.left * k), top: Math.round(i.top * k),
     right: Math.round(i.right * k), bottom: Math.round(i.bottom * k),

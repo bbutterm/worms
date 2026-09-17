@@ -88,21 +88,31 @@ export function initTelegram() {
   return tg;
 }
 
-let lockedLandscape = null;
+let locked = null;
+let inBattle = false;
+
+/** Игровая сцена сообщает, идёт ли бой: меню крутится свободно, бой держится. */
+export function setBattle(on) {
+  inBattle = Boolean(on);
+  syncOrientationLock();
+}
 
 /**
- * В ландшафте — держать, в портрете — отпустить, чтобы можно было
- * повернуть. Работает только в полноэкранном режиме (Bot API 8.0), в
- * компактном методов нет.
+ * Держать ориентацию только в бою и только когда телефон уже повёрнут;
+ * всё остальное время — отпустить. Меню и лобби работают в любой
+ * ориентации, а lockOrientation держит ТЕКУЩУЮ: позови его в портрете —
+ * и повернуть будет нельзя. Работает только в полноэкранном режиме
+ * (Bot API 8.0), в компактном методов нет.
  */
 export function syncOrientationLock() {
   const tg = tgApi();
   if (!tg?.lockOrientation || !tg.unlockOrientation) return;
   const landscape = globalThis.innerWidth > globalThis.innerHeight;
-  if (landscape === lockedLandscape) return;
-  lockedLandscape = landscape;
+  const want = inBattle && landscape;
+  if (want === locked) return;
+  locked = want;
   try {
-    if (landscape) tg.lockOrientation();
+    if (want) tg.lockOrientation();
     else tg.unlockOrientation();
   } catch (e) {
     console.warn('[telegram] orientation', e);

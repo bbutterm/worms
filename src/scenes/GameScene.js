@@ -16,7 +16,7 @@ import { captureCommand } from '../net/protocol.js';
 import { NetSession } from '../net/session.js';
 import { randomRoom, copyText } from '../net/transport.js';
 import { makeTransport } from '../net/connect.js';
-import { startRoom, shareRoom, haptic, inviteLink, offerHomeScreenOnce } from '../platform/telegram.js';
+import { startRoom, shareRoom, haptic, inviteLink, offerHomeScreenOnce, setBattle } from '../platform/telegram.js';
 import { HOTSEAT } from '../core/match.js';
 import { Bot } from '../ai/Bot.js';
 import { markDone, MISSION_BY_ID } from '../campaign/missions.js';
@@ -94,6 +94,11 @@ export default class GameScene extends Phaser.Scene {
     // интерфейс надо разложить заново.
     this.game.events.on('worms-resize', this.relayout, this);
     this.events.once('shutdown', this._shutdown, this);
+
+    // Бой ландшафтный: в портрете страница показывает «поверни телефон»,
+    // а Telegram держит ландшафт. Меню всего этого не касается.
+    globalThis.document?.body.classList.add('in-battle');
+    setBattle(true);
   }
 
   /** Пересобрать всё, что считалось от размера экрана. */
@@ -1004,6 +1009,8 @@ export default class GameScene extends Phaser.Scene {
 
   _shutdown() {
     this.game.events.off('worms-resize', this.relayout, this);
+    globalThis.document?.body.classList.remove('in-battle');
+    setBattle(false);
     this.mines = [];
     this.aim?.destroy();
     this.crates = [];

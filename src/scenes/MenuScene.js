@@ -34,13 +34,13 @@ export default class MenuScene extends Phaser.Scene {
     // Раскладка — в логическом экране, фон — на весь канвас: фон рисует
     // главная камера, а всё остальное — uiCam, чей вьюпорт сдвинут внутрь
     // на рамку безопасной области (под кнопки Telegram и «чёлку»).
-    this.W = CFG.VIEW_W; this.H = CFG.VIEW_H;
     this.items = [];
     this.buttons = {};
 
     this.cameras.main.setBackgroundColor('#0d1220');
     const f = CFG.FRAME;
-    this.uiCam = this.cameras.add(f.left, f.top, this.W, this.H);
+    this.uiCam = this.cameras.add(f.left, f.top, CFG.VIEW_W, CFG.VIEW_H);
+    this._measure();
     // Всё, что появляется в сцене, — интерфейс, кроме фона: он помечается
     // отдельно в _backdrop, а остальное разводится по камерам здесь.
     const assignCamera = (go) => {
@@ -73,15 +73,31 @@ export default class MenuScene extends Phaser.Scene {
   }
 
   _relayout() {
-    this.W = CFG.VIEW_W;
-    this.H = CFG.VIEW_H;
     const f = CFG.FRAME;
-    this.uiCam.setViewport(f.left, f.top, this.W, this.H);
+    this.uiCam.setViewport(f.left, f.top, CFG.VIEW_W, CFG.VIEW_H);
+    this._measure();
     this.backdropImage?.destroy();
     this.textures.remove('menu-bg');
     this._backdrop();
     (this.section ?? this.showRoot).call(this);
   }
+
+  /**
+   * Размеры раскладки. Разделы размечены под высоту 720; в портрете экран
+   * выше, и содержимое центрируется по вертикали: камера интерфейса
+   * прокручена на oy, так что y=0 раздела оказывается на oy экрана. Что
+   * прижато к низу экрана (назад, «на экран Домой»), считается от bottomY.
+   */
+  _measure() {
+    this.W = CFG.VIEW_W;
+    this.H = CFG.VIEW_H;
+    this.portrait = this.H > this.W;
+    this.oy = Math.max(0, Math.round((this.H - CFG.VIEW_BASE) / 2));
+    this.uiCam.scrollY = -this.oy;
+  }
+
+  /** y в координатах раздела для точки на расстоянии d от низа экрана. */
+  bottomY(d) { return this.H - this.oy - d; }
 
   /** Небо и силуэт холмов: пустой тёмный экран смотрелся заготовкой. */
   _backdrop() {
@@ -168,7 +184,8 @@ export default class MenuScene extends Phaser.Scene {
       img.on('pointerout', release);
       img.on('pointerup', () => { release(); onTap(); });
     }
-    this.buttons[key] = { x, y, w, h, enabled };
+    // Координаты для тестов — экранные (раздел прокручен на oy)
+    this.buttons[key] = { x, y: y + this.oy, w, h, enabled };
     return img;
   }
 
@@ -196,7 +213,7 @@ export default class MenuScene extends Phaser.Scene {
   }
 
   _back(onTap = () => this.showRoot()) {
-    this._button('back', 92, this.H - 46, '← назад', '', onTap, { w: 148, h: 50 });
+    this._button('back', 92, this.bottomY(46), '← назад', '', onTap, { w: 148, h: 50 });
   }
 
   showRoot() {
@@ -216,12 +233,12 @@ export default class MenuScene extends Phaser.Scene {
     // Иконка на экран Домой: открывает игру внутри Telegram сразу в полный
     // экран. Кнопка есть, только пока Telegram говорит, что иконки нет
     if (canOfferHomeScreen()) {
-      this._button('home', 132, this.H - 46, '⌂ На экран Домой', '',
+      this._button('home', 132, this.bottomY(46), '⌂ На экран Домой', '',
         () => addToHomeScreen(), { w: 228, h: 50 });
     }
 
-    this.items.push(this.add.text(this.W - 16, this.H - 14,
-      'ландшафтная ориентация · звука нет', font(11, 700, UI.textDim)).setOrigin(1, 1));
+    this.items.push(this.add.text(this.W - 16, this.bottomY(14),
+      'бой — в ландшафте · звука нет', font(11, 700, UI.textDim)).setOrigin(1, 1));
   }
 
   // ------------------------------------------------------- быстрая игра
@@ -328,7 +345,9 @@ export default class MenuScene extends Phaser.Scene {
       `побед ${me.wins} · поражений ${me.losses}`, font(12, 700, UI.textDim))
       .setOrigin(0.5, 0));
 
-    const y0 = 250, step = 74;
+    // 262, а не 250: строка побед/поражений над кнопками заезжала под
+    // верхний край «Быстрого боя»
+    const y0 = 262, step = 74;
     this._button('quickmatch', cx, y0, 'Быстрый бой', 'подобрать соперника по рейтингу',
       () => this.startSearch(), { variant: 'primary' });
     this._button('friend', cx, y0 + step, 'Играть с другом', 'по коду комнаты',
@@ -385,22 +404,26 @@ export default class MenuScene extends Phaser.Scene {
     for (const o of this.playerRows ?? []) o.destroy();
     this.playerRows = [];
 
-    const x = this.W - 250;
-    const head = this.add.text(x, 120, `в сети: ${list.length + 1}`,
+    // В ландшафте список стоит справа от кнопок; в портрете справа места
+    // нет — он уходит под кнопки, там высоты хватает
+    const searching = this.section === this.startSearch;
+    const x = this.portrait ? this.W / 2 - 210 : this.W - 250;
+    const top = this.portrait ? (searching ? 380 : 470) : 120;
+    const head = this.add.text(x, top, `в сети: ${list.length + 1}`,
       font(13, 800, UI.accent)).setOrigin(0, 0);
     this.playerRows.push(head);
 
     list.slice(0, 7).forEach((p, i) => {
-      const y = 148 + i * 34;
-      const searching = p.state === 'searching';
+      const y = top + 28 + i * 34;
+      const seeks = p.state === 'searching';
       const row = this.add.text(x, y, p.name,
-        font(13, 800, searching ? UI.text : UI.textDim)).setOrigin(0, 0);
+        font(13, 800, seeks ? UI.text : UI.textDim)).setOrigin(0, 0);
       row.setInteractive({ useHandCursor: true });
       row.on('pointerdown', () => this.lobby?.invite(p.id));
       // Лига под именем: с кем сводит подбор, видно до боя, а не после
       const sub = this.add.text(x, y + 15,
-        `${leagueLabel(p.rating)}${searching ? ' · ищет бой' : ''}`,
-        font(11, 700, leagueOf(p.rating).text)).setOrigin(0, 0).setAlpha(searching ? 1 : 0.6);
+        `${leagueLabel(p.rating)}${seeks ? ' · ищет бой' : ''}`,
+        font(11, 700, leagueOf(p.rating).text)).setOrigin(0, 0).setAlpha(seeks ? 1 : 0.6);
       this.playerRows.push(row, sub);
     });
     // Строки живут отдельно от items: список обновляется чаще, чем раздел
