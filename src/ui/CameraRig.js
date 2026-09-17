@@ -1,4 +1,4 @@
-import { CFG } from '../config.js';
+import { CFG, canvasSize } from '../config.js';
 
 /**
  * Три камеры вместо одной.
@@ -19,15 +19,22 @@ import { CFG } from '../config.js';
  * Важно: pointer.worldX/worldY Phaser считает относительно cameras.main,
  * то есть теперь относительно неба. Мировые координаты указателя брать
  * только через worldPoint().
+ *
+ * Безопасная область. Канвас занимает весь экран, включая «чёлку» и
+ * полосу под кнопками Telegram: небо и мир рисуются до краёв. Интерфейс
+ * же под кнопками не нужен, поэтому uiCam получает вьюпорт, сдвинутый
+ * внутрь на рамку CFG.FRAME, а его собственные координаты остаются
+ * (0,0)…(VIEW_W,VIEW_H) — HUD ничего про рамку не знает.
  */
 export class CameraRig {
   constructor(scene) {
     this.scene = scene;
-    const W = CFG.VIEW_W, H = CFG.VIEW_H;
+    const [W, H] = canvasSize();
+    const f = CFG.FRAME;
 
     this.bgCam = scene.cameras.main;
     this.worldCam = scene.cameras.add(0, 0, W, H);
-    this.uiCam = scene.cameras.add(0, 0, W, H);
+    this.uiCam = scene.cameras.add(f.left, f.top, CFG.VIEW_W, CFG.VIEW_H);
 
     // Границы не ставим: setBounds вместе с зумом дерётся с ручным
     // скроллом, поэтому clamp считаем сами.
@@ -45,11 +52,17 @@ export class CameraRig {
    * Своим камерам размер надо задать руками: автоматически подстраивается
    * только главная.
    */
-  resize(W = CFG.VIEW_W, H = CFG.VIEW_H) {
+  resize() {
+    const [W, H] = canvasSize();
+    const f = CFG.FRAME;
     this.bgCam.setSize(W, H);
     this.worldCam.setSize(W, H);
-    this.uiCam.setSize(W, H);
+    this.uiCam.setViewport(f.left, f.top, CFG.VIEW_W, CFG.VIEW_H);
   }
+
+  /** Размер мировой камеры — весь канвас, с рамкой. */
+  get W() { return this.worldCam.width; }
+  get H() { return this.worldCam.height; }
 
   // ------------------------------------------------------- принадлежность
 
@@ -82,29 +95,32 @@ export class CameraRig {
 
   // ------------------------------------------------------------------ зум
 
-  get visibleW() { return CFG.VIEW_W / this.zoom; }
-  get visibleH() { return CFG.VIEW_H / this.zoom; }
+  get visibleW() { return this.W / this.zoom; }
+  get visibleH() { return this.H / this.zoom; }
 
   /** Масштаб, при котором в кадр влезает вся карта по ширине. */
-  get fitZoom() { return CFG.VIEW_W / CFG.WORLD_W; }
+  get fitZoom() { return this.W / CFG.WORLD_W; }
 
   // --- Видимая область ---
   // Внимание: cam.scrollX/scrollY — это НЕ левый верхний угол вида. Phaser
   // масштабирует вокруг центра камеры, поэтому угол считается отдельно,
   // иначе при зуме камера уезжает мимо мира.
-  get viewLeft() { return this.worldCam.scrollX + (CFG.VIEW_W - this.visibleW) / 2; }
-  get viewTop() { return this.worldCam.scrollY + (CFG.VIEW_H - this.visibleH) / 2; }
+  get viewLeft() { return this.worldCam.scrollX + (this.W - this.visibleW) / 2; }
+  get viewTop() { return this.worldCam.scrollY + (this.H - this.visibleH) / 2; }
 
   setViewLeft(left) {
-    this.worldCam.scrollX = this.clampLeft(left) + (this.visibleW - CFG.VIEW_W) / 2;
+    this.worldCam.scrollX = this.clampLeft(left) + (this.visibleW - this.W) / 2;
   }
 
   setViewTop(top) {
-    this.worldCam.scrollY = top + (this.visibleH - CFG.VIEW_H) / 2;
+    this.worldCam.scrollY = top + (this.visibleH - this.H) / 2;
   }
 
-  /** Экранная координата мировой точки — нужна указателям у краёв. */
+  /** Координата мировой точки на канвасе — нужна указателям у краёв. */
   screenX(worldX) { return (worldX - this.viewLeft) * this.zoom; }
+
+  /** То же в координатах интерфейса: канвас минус рамка. */
+  uiX(worldX) { return this.screenX(worldX) - CFG.FRAME.left; }
 
   setZoom(z, anchorX = null) {
     const next = Phaser.Math.Clamp(z, CFG.ZOOM_MIN, CFG.ZOOM_MAX);
@@ -112,7 +128,7 @@ export class CameraRig {
 
     // Точка мира под пальцем (или под курсором) должна остаться на месте,
     // иначе зум «уезжает» и им невозможно пользоваться прицельно.
-    const ax = anchorX ?? CFG.VIEW_W / 2;
+    const ax = anchorX ?? this.W / 2;
     const worldUnderAnchor = this.viewLeft + ax / this.zoom;
 
     this.zoom = next;
@@ -241,7 +257,7 @@ export class CameraRig {
         const sx = this.screenX(target.x);
         const m = CFG.CAM_DEADZONE;
         if (sx < m) desired = target.x - m / this.zoom;
-        else if (sx > CFG.VIEW_W - m) desired = target.x - (CFG.VIEW_W - m) / this.zoom;
+        else if (sx > this.W - m) desired = target.x - (this.W - m) / this.zoom;
       }
       if (desired !== null) {
         const lerp = follow === 'center' ? CFG.CAM_LERP_FAST : CFG.CAM_LERP;

@@ -7,6 +7,10 @@ export const CFG = {
   VIEW_H: 720,
   VIEW_W_MIN: 1280,        // уже — незачем, поля появятся только на квадратных экранах
   VIEW_W_MAX: 2200,        // шире — интерфейс расползается, а мир 3200 кончается
+  // Рамка вокруг логического экрана, в логических пикселях: безопасная
+  // область («чёлка», кнопки Telegram). Канвас на весь экран, мир и небо
+  // рисуются до краёв, а интерфейс живёт внутри рамки. См. fitViewToScreen.
+  FRAME: { left: 0, top: 0, right: 0, bottom: 0 },
   WORLD_W: 3200,           // карта ~2.5x шире экрана, камера следит
   WORLD_H: 720,
 
@@ -136,18 +140,38 @@ export const CFG = {
  * видит больше поля по горизонтали — для артиллерии это прямая выгода.
  * Вызывать до создания Phaser.Game.
  */
-export function fitViewToScreen(screenW, screenH) {
+export function fitViewToScreen(screenW, screenH, inset = null) {
   if (!screenW || !screenH) return CFG.VIEW_W;
+  // Отступы безопасной области известны только для текущей ориентации,
+  // а в портрете они всё равно не нужны: игра просит повернуть телефон.
+  const portrait = screenH > screenW;
+  const i = !portrait && inset ? inset : { left: 0, top: 0, right: 0, bottom: 0 };
+  const safeW = Math.max(1, screenW - i.left - i.right);
+  const safeH = Math.max(1, screenH - i.top - i.bottom);
+
   // Считаем всегда по ландшафтной стороне, даже если страницу открыли в
   // портрете. Игра ландшафтная, в портрете она просит повернуть телефон —
   // и если посчитать по портретным пропорциям, ширина упрётся в минимум
   // (1280 = 16:9), а после поворота останутся чёрные поля по бокам.
-  // Размер считается один раз до создания игры, второго шанса нет.
-  const long = Math.max(screenW, screenH);
-  const short = Math.min(screenW, screenH);
+  const long = Math.max(safeW, safeH);
+  const short = Math.min(safeW, safeH);
   const wanted = Math.round(CFG.VIEW_H * (long / short));
   CFG.VIEW_W = Math.max(CFG.VIEW_W_MIN, Math.min(CFG.VIEW_W_MAX, wanted));
+
+  // Рамка: те же отступы в логических пикселях. Масштаб один на всё —
+  // высота безопасной области и есть VIEW_H.
+  const k = CFG.VIEW_H / short;
+  CFG.FRAME = {
+    left: Math.round(i.left * k), top: Math.round(i.top * k),
+    right: Math.round(i.right * k), bottom: Math.round(i.bottom * k),
+  };
   return CFG.VIEW_W;
+}
+
+/** Размер канваса: логический экран плюс рамка. */
+export function canvasSize() {
+  const f = CFG.FRAME;
+  return [CFG.VIEW_W + f.left + f.right, CFG.VIEW_H + f.top + f.bottom];
 }
 
 export const DEPTH = {

@@ -27,7 +27,7 @@ export class OffscreenMarkers {
     const right = [];
     for (const w of scene.worms) {
       if (!w.alive) continue;
-      const sx = scene.rig.screenX(w.x);
+      const sx = scene.rig.uiX(w.x);
       if (sx < m) left.push(w);
       else if (sx > CFG.VIEW_W - m) right.push(w);
     }

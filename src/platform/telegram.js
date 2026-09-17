@@ -131,23 +131,36 @@ export function safeArea() {
   };
 }
 
+/**
+ * Отступы безопасной области, где бы игра ни была открыта: в Telegram —
+ * от клиента, снаружи — из CSS env(safe-area-inset-*) через щуп в
+ * index.html (у JS к env() прямого доступа нет).
+ */
+export function screenInsets() {
+  if (tgApi()) return safeArea();
+  const probe = globalThis.document?.getElementById('safe-probe');
+  if (!probe) return { top: 0, bottom: 0, left: 0, right: 0 };
+  const cs = getComputedStyle(probe);
+  const n = (v) => Math.max(0, Math.round(parseFloat(v) || 0));
+  return {
+    top: n(cs.paddingTop), bottom: n(cs.paddingBottom),
+    left: n(cs.paddingLeft), right: n(cs.paddingRight),
+  };
+}
+
 let lastInset = '';
 
 /**
- * Игровое поле (#game) прижато к краям экрана; здесь его края сдвигаются
- * внутрь на отступы. Фон страницы тёмный, так что под кнопками Telegram
- * остаётся просто тёмная полоса, а Phaser вписывает канвас в то, что
- * осталось. Снаружи Telegram отступы задаёт CSS через env(): тот же приём
- * для «чёлки» в PWA.
+ * Telegram прислал отступы. Сами они применяются в main.js через рамку
+ * CFG.FRAME: канвас остаётся на весь экран, внутрь сдвигается только
+ * интерфейс. Здесь — лишь сигнал, что рамку пора пересчитать.
  */
 export function applySafeArea() {
-  const el = globalThis.document?.getElementById('game');
-  if (!el || !tgApi()) return;
+  if (!tgApi()) return;
   const s = safeArea();
-  const inset = `${s.top}px ${s.right}px ${s.bottom}px ${s.left}px`;
+  const inset = `${s.top} ${s.right} ${s.bottom} ${s.left}`;
   if (inset === lastInset) return;
   lastInset = inset;
-  el.style.inset = inset;
   globalThis.dispatchEvent(new Event('worms-safearea'));
 }
 

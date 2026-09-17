@@ -151,21 +151,27 @@ check('рейтинг — из облака, а не из локальной к�
   me.rating === 1234 && me.wins === 5, `рейтинг ${me.rating}, побед ${me.wins}`);
 
 const area = await page.evaluate(() => {
-  const r = document.getElementById('game').getBoundingClientRect();
-  const c = document.querySelector('#game canvas').getBoundingClientRect();
+  const g = window.__WORMS__;
+  const c = g.canvas.getBoundingClientRect();
+  const m = g.scene.getScene('Menu');
+  const k = c.width / g.scale.width;   // CSS-пикселей на логический
+  const ui = m.uiCam;
   return {
-    top: r.top, left: r.left, right: innerWidth - r.right, bottom: innerHeight - r.bottom,
-    canvasInside: c.left >= r.left - 1 && c.top >= r.top - 1
-      && c.right <= r.right + 1 && c.bottom <= r.bottom + 1,
     canvas: `${Math.round(c.width)}x${Math.round(c.height)}`,
-    ratio: Math.abs((c.width / c.height) - (r.width / r.height)),
+    full: Math.abs(c.width - innerWidth) < 2 && Math.abs(c.height - innerHeight) < 2,
+    // Вьюпорт интерфейса в CSS-пикселях от краёв экрана
+    top: Math.round(ui.y * k), left: Math.round(ui.x * k),
+    right: Math.round(innerWidth - (ui.x + ui.width) * k),
+    bottom: Math.round(innerHeight - (ui.y + ui.height) * k),
+    uiH: ui.height,
   };
 });
-check('игровое поле отступает от кнопок Telegram и от «чёлки»',
-  area.top === 46 && area.left === 47 && area.right === 47 && area.bottom === 21,
+check('канвас на весь экран, включая «чёлку» и полосу кнопок Telegram',
+  area.full, area.canvas);
+check('интерфейс отступает от кнопок Telegram и от «чёлки»',
+  Math.abs(area.top - 46) <= 1 && Math.abs(area.left - 47) <= 1
+    && Math.abs(area.right - 47) <= 1 && Math.abs(area.bottom - 21) <= 1 && area.uiH === 720,
   `сверху ${area.top}, слева ${area.left}, справа ${area.right}, снизу ${area.bottom}`);
-check('канвас целиком внутри поля и заполняет его без полей',
-  area.canvasInside && area.ratio < 0.02, `${area.canvas}, расхождение пропорций ${area.ratio.toFixed(3)}`);
 
 // ------------------------------------------------------------ приглашение
 
@@ -287,7 +293,9 @@ async function tapButton(p, b) {
   const pt = await p.evaluate(([x, y]) => {
     const c = document.querySelector('#game canvas').getBoundingClientRect();
     const g = window.__WORMS__;
-    return [c.left + (x / g.scale.width) * c.width, c.top + (y / g.scale.height) * c.height];
+    const ui = g.scene.getScene('Menu').uiCam;   // интерфейс сдвинут на рамку
+    return [c.left + ((ui.x + x) / g.scale.width) * c.width,
+      c.top + ((ui.y + y) / g.scale.height) * c.height];
   }, [b.x, b.y]);
   await p.mouse.click(pt[0], pt[1]);
 }

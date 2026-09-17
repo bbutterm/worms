@@ -56,14 +56,14 @@
     -webkit-tap-highlight-color: transparent;
     font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   }
-  /* Игровое поле прижато к краям, но отступает на безопасную область:
-     под «чёлкой» и скруглёнными углами iPhone рисовать нельзя, там кнопки
-     не нажать. В Telegram отступы задаёт скрипт (src/platform/telegram.js)
-     поверх этих: у него они шире, там ещё и кнопки самого клиента. */
-  #game {
-    position: fixed;
-    inset: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px)
-           env(safe-area-inset-bottom, 0px) env(safe-area-inset-left, 0px);
+  /* Канвас на весь экран, включая «чёлку» и полосу под кнопками Telegram:
+     мир рисуется до краёв, а интерфейс сам отступает внутрь (CFG.FRAME). */
+  #game { position: fixed; inset: 0; }
+  /* Щуп для безопасной области вне Telegram: JS читает env() через него */
+  #safe-probe {
+    position: fixed; visibility: hidden; pointer-events: none;
+    padding: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px)
+             env(safe-area-inset-bottom, 0px) env(safe-area-inset-left, 0px);
   }
   #game canvas { display: block; }
   #fatal {
@@ -95,6 +95,7 @@
 </head>
 <body>
 <div id="game"></div>
+<div id="safe-probe"></div>
 <div id="rotate">
   <div class="phone"></div>
   <div>Поверни телефон горизонтально</div>

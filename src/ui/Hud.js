@@ -390,7 +390,8 @@ export class Hud {
 
   /** Попал ли указатель в интерфейс — тогда это не прицеливание и не камера. */
   isOverUI(pointer) {
-    const px = pointer.x, py = pointer.y;
+    // Указатель — в координатах канваса, интерфейс — внутри рамки
+    const px = pointer.x - CFG.FRAME.left, py = pointer.y - CFG.FRAME.top;
     if (py < TOP_H) return true;
     if (this.helpVisible) return true;   // подсказка перекрывает всё поле
     if (this.inventory?.isOpen) return true;   // и арсенал тоже

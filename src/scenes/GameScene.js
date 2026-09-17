@@ -1,4 +1,4 @@
-import { CFG, DEPTH, TEAM_COLORS, TEAM_NAMES } from '../config.js';
+import { CFG, DEPTH, TEAM_COLORS, TEAM_NAMES, canvasSize } from '../config.js';
 import { makeRng, subRng } from '../core/rng.js';
 import { BIOMES, pickBiome } from '../core/biomes.js';
 import { Terrain } from '../core/Terrain.js';
@@ -99,7 +99,8 @@ export default class GameScene extends Phaser.Scene {
   /** Пересобрать всё, что считалось от размера экрана. */
   relayout() {
     this.rig.resize();
-    this.skyImage?.setDisplaySize(CFG.VIEW_W, this.skyHeight ?? CFG.VIEW_H);
+    const [cw, ch] = canvasSize();
+    this.skyImage?.setDisplaySize(cw, Math.max(this.skyHeight ?? 0, ch));
 
     // HUD проще собрать заново, чем двигать полсотни объектов поштучно
     const help = this.hud.helpVisible;
@@ -270,29 +271,31 @@ export default class GameScene extends Phaser.Scene {
     // Градиент неба из темы: узкая вертикальная полоска, растянутая по ширине.
     // По высоте НЕ ужимаем: градиент рассчитан на карту выше экрана, и его
     // нижняя (почти чёрная) часть должна остаться за кадром.
+    // Небо — на весь канвас, включая рамку безопасной области
+    const [cw, ch] = canvasSize();
     if (has(this, `${biome.id}_sky`)) {
-      const skyH = meta(`terrain_${biome.id}`)?.skyH ?? CFG.VIEW_H;
+      const skyH = meta(`terrain_${biome.id}`)?.skyH ?? ch;
       this.skyImage = this.rig.bg(this.add.image(0, 0, `${biome.id}_sky`)
         .setOrigin(0, 0)
-        .setDisplaySize(CFG.VIEW_W, Math.max(skyH, CFG.VIEW_H))
+        .setDisplaySize(cw, Math.max(skyH, ch))
         .setScrollFactor(0)
         .setDepth(DEPTH.SKY));
-      this.skyHeight = Math.max(skyH, CFG.VIEW_H);
+      this.skyHeight = Math.max(skyH, ch);
     } else {
       const key = 'sky-tex';
       if (this.textures.exists(key)) this.textures.remove(key);
-      const tex = this.textures.createCanvas(key, 8, CFG.VIEW_H);
+      const tex = this.textures.createCanvas(key, 8, ch);
       const ctx = tex.getContext();
-      const g = ctx.createLinearGradient(0, 0, 0, CFG.VIEW_H);
+      const g = ctx.createLinearGradient(0, 0, 0, ch);
       g.addColorStop(0, biome.fallback.sky[0]);
       g.addColorStop(1, biome.fallback.sky[1]);
       ctx.fillStyle = g;
-      ctx.fillRect(0, 0, 8, CFG.VIEW_H);
+      ctx.fillRect(0, 0, 8, ch);
       tex.refresh();
       this.skyImage = this.rig.bg(this.add.image(0, 0, key).setOrigin(0, 0)
-        .setDisplaySize(CFG.VIEW_W, CFG.VIEW_H)
+        .setDisplaySize(cw, ch)
         .setScrollFactor(0).setDepth(DEPTH.SKY));
-      this.skyHeight = CFG.VIEW_H;
+      this.skyHeight = ch;
     }
 
     this._buildParallax(biome);

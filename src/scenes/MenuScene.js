@@ -1,4 +1,5 @@
 import { UI, font, ensureButton } from '../ui/theme.js';
+import { CFG } from '../config.js';
 import { MISSIONS, loadProgress, isUnlocked } from '../campaign/missions.js';
 import { objectiveText } from '../campaign/objectives.js';
 import { quickMatch, campaignMatch, onlineMatch } from '../core/match.js';
@@ -30,12 +31,28 @@ export default class MenuScene extends Phaser.Scene {
   constructor() { super('Menu'); }
 
   create() {
-    const W = this.scale.width, H = this.scale.height;
-    this.W = W; this.H = H;
+    // Раскладка — в логическом экране, фон — на весь канвас: фон рисует
+    // главная камера, а всё остальное — uiCam, чей вьюпорт сдвинут внутрь
+    // на рамку безопасной области (под кнопки Telegram и «чёлку»).
+    this.W = CFG.VIEW_W; this.H = CFG.VIEW_H;
     this.items = [];
     this.buttons = {};
 
     this.cameras.main.setBackgroundColor('#0d1220');
+    const f = CFG.FRAME;
+    this.uiCam = this.cameras.add(f.left, f.top, this.W, this.H);
+    // Всё, что появляется в сцене, — интерфейс, кроме фона: он помечается
+    // отдельно в _backdrop, а остальное разводится по камерам здесь.
+    const assignCamera = (go) => {
+      // Лобби живёт и когда меню уснуло, и может дорисовать список уже
+      // без камер — тогда просто нечего разводить
+      const bg = this.cameras?.main;
+      if (!bg || !this.uiCam) return;
+      if (this._addingBackdrop) this.uiCam.ignore(go);
+      else bg.ignore(go);
+    };
+    this.events.on('addedtoscene', assignCamera);
+    this.events.once('shutdown', () => this.events.off('addedtoscene', assignCamera));
     this._backdrop();
     this.showRoot();
 
@@ -56,8 +73,10 @@ export default class MenuScene extends Phaser.Scene {
   }
 
   _relayout() {
-    this.W = this.scale.width;
-    this.H = this.scale.height;
+    this.W = CFG.VIEW_W;
+    this.H = CFG.VIEW_H;
+    const f = CFG.FRAME;
+    this.uiCam.setViewport(f.left, f.top, this.W, this.H);
     this.backdropImage?.destroy();
     this.textures.remove('menu-bg');
     this._backdrop();
@@ -66,7 +85,7 @@ export default class MenuScene extends Phaser.Scene {
 
   /** Небо и силуэт холмов: пустой тёмный экран смотрелся заготовкой. */
   _backdrop() {
-    const { W, H } = this;
+    const W = this.scale.width, H = this.scale.height;   // весь канвас
     const key = 'menu-bg';
     if (!this.textures.exists(key)) {
       const tex = this.textures.createCanvas(key, W, H);
@@ -98,7 +117,9 @@ export default class MenuScene extends Phaser.Scene {
       }
       tex.refresh();
     }
+    this._addingBackdrop = true;
     this.backdropImage = this.add.image(0, 0, key).setOrigin(0, 0).setDepth(-10);
+    this._addingBackdrop = false;
   }
 
   // ------------------------------------------------------------- разделы

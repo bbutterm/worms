@@ -1,8 +1,8 @@
-import { CFG, fitViewToScreen } from './config.js';
+import { CFG, fitViewToScreen, canvasSize } from './config.js';
 import BootScene from './scenes/BootScene.js';
 import MenuScene from './scenes/MenuScene.js';
 import GameScene from './scenes/GameScene.js';
-import { initTelegram, startRoom } from './platform/telegram.js';
+import { initTelegram, startRoom, screenInsets } from './platform/telegram.js';
 import { loadCloudProfile } from './platform/player.js';
 
 initTelegram();
@@ -11,7 +11,7 @@ initTelegram();
 // иначе на вытянутом телефоне 16:9 вписывается с чёрными полями по бокам
 // (на замере — 29% ширины впустую). Высота остаётся 720, поэтому вся
 // геометрия мира, физика и генерация ландшафта не меняются вовсе.
-fitViewToScreen(...gameArea());
+fitViewToScreen(window.innerWidth, window.innerHeight, screenInsets());
 
 // Шрифт должен приехать ДО первого текста: Phaser меряет и кеширует
 // метрики при создании, и текст, созданный на запасном шрифте, так и
@@ -19,16 +19,6 @@ fitViewToScreen(...gameArea());
 // старта: имя и рейтинг читаются синхронно, второго шанса подменить их нет.
 await Promise.all([loadUiFont(), loadCloudProfile()]);
 
-/**
- * Размер игрового поля. Это не окно: #game отступает от краёв экрана на
- * безопасную область («чёлка», кнопки Telegram), и пропорции считаются
- * от того, что осталось.
- */
-function gameArea() {
-  const r = document.getElementById('game')?.getBoundingClientRect();
-  if (r && r.width > 0 && r.height > 0) return [r.width, r.height];
-  return [window.innerWidth, window.innerHeight];
-}
 
 async function loadUiFont() {
   if (!document.fonts) return;
@@ -51,11 +41,14 @@ async function loadUiFont() {
 // всё, включая показ его выстрела и отправку собственного итога хода.
 const online = Boolean(startRoom());
 
+// Канвас на весь экран, включая безопасную область: мир и небо рисуются
+// до краёв, интерфейс — внутри рамки CFG.FRAME (см. CameraRig).
+const [canvasW, canvasH] = canvasSize();
 const game = new Phaser.Game({
   type: Phaser.AUTO,
   parent: 'game',
-  width: CFG.VIEW_W,
-  height: CFG.VIEW_H,
+  width: canvasW,
+  height: canvasH,
   backgroundColor: '#0b1021',
   disableVisibilityChange: online,
   scale: {
@@ -92,7 +85,7 @@ window.__WORMS__ = game;
 let refitTimer = 0;
 function refit() {
   const before = CFG.VIEW_W;
-  fitViewToScreen(...gameArea());
+  fitViewToScreen(window.innerWidth, window.innerHeight, screenInsets());
   // Сдвиг игрового поля меняет его размер без события resize у окна:
   // Phaser надо попросить перемерить родителя самому
   game.scale.refresh();
