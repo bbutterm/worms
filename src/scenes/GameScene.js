@@ -7,7 +7,7 @@ import { has, meta } from '../core/assets.js';
 import { Worm } from '../entities/Worm.js';
 import { Crate } from '../entities/Crate.js';
 import { Mine } from '../entities/Mine.js';
-import { Hud } from '../ui/Hud.js';
+import { Hud, TOP_H } from '../ui/Hud.js';
 import { Fx } from '../ui/Fx.js';
 import { AimController } from '../ui/AimController.js';
 import { font, UI, ensureButton } from '../ui/theme.js';
@@ -101,11 +101,28 @@ export default class GameScene extends Phaser.Scene {
     setBattle(true);
   }
 
+  /**
+   * Подложка под кнопки Telegram. В полноэкранном режиме «Close» и «…»
+   * висят поверх игры, и панель начинается под ними; без подложки между
+   * верхом экрана и панелью торчит полоса неба, которая читается как
+   * пустой отступ. Тёмная полоса от самого верха до низа панели делает
+   * кнопки Telegram частью панели. Вне Telegram рамки нет — и полосы нет.
+   */
+  _buildTopShade() {
+    this.topShade?.destroy();
+    this.topShade = null;
+    if (!CFG.FRAME.top) return;
+    const [cw] = canvasSize();
+    this.topShade = this.rig.bg(this.add.rectangle(0, 0, cw, CFG.FRAME.top + TOP_H, 0x10131a, 0.94)
+      .setOrigin(0, 0).setScrollFactor(0).setDepth(DEPTH.SKY + 1));
+  }
+
   /** Пересобрать всё, что считалось от размера экрана. */
   relayout() {
     this.rig.resize();
     const [cw, ch] = canvasSize();
     this.skyImage?.setDisplaySize(cw, Math.max(this.skyHeight ?? 0, ch));
+    this._buildTopShade();
 
     // HUD проще собрать заново, чем двигать полсотни объектов поштучно
     const help = this.hud.helpVisible;
@@ -304,6 +321,7 @@ export default class GameScene extends Phaser.Scene {
     }
 
     this._buildParallax(biome);
+    this._buildTopShade();
   }
 
   _buildParallax(biome) {
@@ -903,8 +921,11 @@ export default class GameScene extends Phaser.Scene {
     this.fx.sound(winner === mine ? 'victory' : 'defeat');
     haptic(winner === mine ? 'win' : 'lose');
     // Первая доигранная партия — момент предложить иконку на экран Домой.
-    // Чуть позже итога, чтобы не перекрыть его; Telegram покажет своё окно
-    this.time.delayedCall(1500, () => offerHomeScreenOnce());
+    // Чуть позже итога, чтобы не перекрыть его; Telegram покажет своё окно.
+    // Реальные часы, а не игровые: игровой шаг Phaser ограничен 17 мс за
+    // кадр, и на слабом рендере полторы игровые секунды тянутся десятки
+    // реальных. Иконка к кадрам отношения не имеет.
+    setTimeout(() => offerHomeScreenOnce(), 1500);
 
     // Рейтинг двигается только в сетевом бою: против бота и в хотсите
     // очков не бывает, иначе их можно было бы «нафармить» о самого себя.

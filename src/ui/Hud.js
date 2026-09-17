@@ -4,7 +4,7 @@ import { has as hasAsset } from '../core/assets.js';
 import { UI, font, ensureButton, ensureRoundButton, ensureIcon } from './theme.js';
 import { Inventory } from './Inventory.js';
 
-const TOP_H = 62;
+export const TOP_H = 62;
 
 /**
  * Интерфейс: ход, таймер, здоровье команд, ветер, выбор оружия и тач-кнопки.

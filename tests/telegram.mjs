@@ -296,6 +296,14 @@ const fit = await portrait.evaluate(() => {
 });
 check('после поворота канвас — экран плюс рамка, интерфейс внутри канваса',
   fit.inside && fit.full, `канвас ${fit.game}, интерфейс ${fit.ui}`);
+const shade = await portrait.evaluate(() => {
+  const s = window.__WORMS__.scene.getScene('Game');
+  const sh = s.topShade;
+  return sh ? { y: sh.y, h: sh.height, w: sh.width, uiTop: s.rig.uiCam.y } : null;
+});
+check('под кнопками Telegram — тёмная подложка от верха до низа панели',
+  Boolean(shade) && shade.y === 0 && shade.h === shade.uiTop + 62,
+  shade ? `высота ${shade.h}, панель с ${shade.uiTop}` : 'подложки нет');
 check('кнопка «Огонь» после поворота на экране', fit.fireOnScreen);
 await portrait.evaluate(() => window.__WORMS__.scene.getScene('Game').toMenu());
 await menuReady(portrait);
