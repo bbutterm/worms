@@ -16,7 +16,7 @@ import { captureCommand } from '../net/protocol.js';
 import { NetSession } from '../net/session.js';
 import { randomRoom, copyText } from '../net/transport.js';
 import { makeTransport } from '../net/connect.js';
-import { startRoom, shareRoom, haptic } from '../platform/telegram.js';
+import { startRoom, shareRoom, haptic, inviteLink, offerHomeScreenOnce } from '../platform/telegram.js';
 import { HOTSEAT } from '../core/match.js';
 import { Bot } from '../ai/Bot.js';
 import { markDone, MISSION_BY_ID } from '../campaign/missions.js';
@@ -220,9 +220,7 @@ export default class GameScene extends Phaser.Scene {
 
   /** Ссылка-приглашение для второго игрока. */
   inviteLink(room = this.room) {
-    const url = new URL(location.href);
-    url.searchParams.set('room', room || randomRoom());
-    return url.toString();
+    return inviteLink(room || randomRoom());
   }
 
   /**
@@ -240,9 +238,14 @@ export default class GameScene extends Phaser.Scene {
     }
     const answer = (globalThis.prompt?.('Код комнаты друга (пусто — создать свою):', '') ?? '')
       .trim().toUpperCase();
-    const link = this.inviteLink(answer || randomRoom());
+    const room = answer || randomRoom();
+    const link = this.inviteLink(room);
     copyText(link);
-    location.href = link;      // перезаход: сессия поднимается на старте сцены
+    // Перезаход: сессия поднимается на старте сцены. Адрес всегда сайта:
+    // t.me-ссылка внутри игры никуда не ведёт
+    const url = new URL(location.href);
+    url.searchParams.set('room', room);
+    location.href = url.toString();
     return link;
   }
 
@@ -891,6 +894,9 @@ export default class GameScene extends Phaser.Scene {
     if (this.match.mode === 'campaign' && winner === mine) markDone(this.match.missionId);
     this.fx.sound(winner === mine ? 'victory' : 'defeat');
     haptic(winner === mine ? 'win' : 'lose');
+    // Первая доигранная партия — момент предложить иконку на экран Домой.
+    // Чуть позже итога, чтобы не перекрыть его; Telegram покажет своё окно
+    this.time.delayedCall(1500, () => offerHomeScreenOnce());
 
     // Рейтинг двигается только в сетевом бою: против бота и в хотсите
     // очков не бывает, иначе их можно было бы «нафармить» о самого себя.

@@ -6,14 +6,20 @@
  * выдаётся случайный идентификатор и имя «Боец NNNN», которое он может
  * поменять; всё это лежит в localStorage.
  *
- * Рейтинг пока хранится тут же, на устройстве. Это честный MMR ровно до
+ * Рейтинг хранится у игрока. В Telegram — в CloudStorage, привязанном к
+ * аккаунту: он едет за человеком на другой телефон и в веб-клиент. Вне
+ * Telegram — в localStorage этого устройства. Это честный MMR ровно до
  * того момента, пока никто не захочет его подкрутить: результат сообщает
  * клиент, проверить его некому. Серверная часть описана в
  * docs/rating.sql — там же объяснено, почему без неё рейтинг остаётся
  * «для своих».
  */
 
+import { inTelegram, cloudGet, cloudSet } from './telegram.js';
+
 const KEY = 'worms.player.v1';
+
+let cached = null;
 
 /** Стартовый рейтинг: 1000 — привычная точка отсчёта для Эло. */
 export const START_RATING = 1000;
@@ -28,9 +34,37 @@ function load() {
 }
 
 function save(p) {
+  const raw = JSON.stringify(p);
   try {
-    localStorage.setItem(KEY, JSON.stringify(p));
+    localStorage.setItem(KEY, raw);
   } catch { /* инкогнито — играем без сохранения */ }
+  // В облако — не дожидаясь: игре ответ не нужен, а хранилище может
+  // и промолчать
+  if (inTelegram()) cloudSet(KEY, raw);
+}
+
+/**
+ * Подтянуть профиль из CloudStorage до первого обращения к player().
+ *
+ * Вызывается один раз при запуске, до создания игры. Облако главнее
+ * локальной копии: локальная — это то, что наиграли на этом устройстве
+ * до того, как профиль стал облачным, облачная — то, что у аккаунта.
+ * Если в облаке пусто, локальная копия отправляется туда сама при
+ * первом сохранении.
+ */
+export async function loadCloudProfile() {
+  if (!inTelegram()) return null;
+  const raw = await cloudGet(KEY);
+  if (!raw) return null;
+  try {
+    const p = JSON.parse(raw);
+    if (!p || typeof p !== 'object') return null;
+    localStorage.setItem(KEY, raw);
+    cached = null;
+    return p;
+  } catch {
+    return null;
+  }
 }
 
 function randomId() {
@@ -47,7 +81,6 @@ function telegramUser() {
   return { id: `tg${u.id}`, name, photo: u.photo_url ?? null, telegram: true };
 }
 
-let cached = null;
 
 /**
  * Профиль игрока. Telegram главнее сохранённого: если человек зашёл под

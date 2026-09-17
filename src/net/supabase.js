@@ -12,13 +12,13 @@
  */
 
 export const SUPABASE = {
-  url: 'https://sbbfwcwkhwtvzdozddur.supabase.co',
+  url: 'https://ajltzwomvyvntvtjnrrf.supabase.co',
   // Сначала publishable-ключ: он отзывается отдельно, поэтому его ротация
   // не заденет то, что этим же проектом уже пользуется. Старый anon-ключ —
   // запасной: если Realtime проекта не принимает новый формат, транспорт
   // сам перейдёт на него.
-  anonKey: 'sb_publishable_-FsrKGY-5CF8kNbQDp-O-Q_8fXMzhhq',
-  legacyKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNiYmZ3Y3draHd0dnpkb3pkZHVyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODM1OTY3NzksImV4cCI6MjA5OTE3Mjc3OX0.oaIz_CRctaeUnhHJeKiAROW-cSzP3uWs9lLe7ptmcy4',
+  anonKey: 'sb_publishable_avfKy6YbDfLLYmjiUF7zcw_a3tLPdR6',
+  legacyKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFqbHR6d29tdnl2bnR2dGpucnJmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQwOTk5NTEsImV4cCI6MjA5OTY3NTk1MX0.CfqS0XmMOrPG50viiBpwCCMoNkIOGKV2jQmJcCreqzk',
   // Клиент лежит рядом (vendor/), а не на CDN: одна внешняя точка отказа
   // на игру уже есть — Phaser, — и вторая тут не нужна. Грузится лениво,
   // только когда партия действительно сетевая.

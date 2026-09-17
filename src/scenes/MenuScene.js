@@ -6,6 +6,9 @@ import { randomRoom, copyText } from '../net/transport.js';
 import { Lobby } from '../net/lobby.js';
 import { makeTransport } from '../net/connect.js';
 import { player, setName } from '../platform/player.js';
+import {
+  inviteLink as tgInviteLink, shareRoom, canOfferHomeScreen, addToHomeScreen, onHomeScreenChange,
+} from '../platform/telegram.js';
 import { leagueOf, nextLeague, leagueProgress, toNextLeague, leagueLabel } from '../platform/league.js';
 import { BOT_LEVELS } from '../ai/Bot.js';
 
@@ -41,8 +44,14 @@ export default class MenuScene extends Phaser.Scene {
     // Повернули телефон или уехала панель браузера — раскладка считается
     // от ширины экрана, поэтому раздел перерисовывается целиком.
     this.game.events.on('worms-resize', this._relayout, this);
+    // Telegram узнал, стоит ли иконка на экране Домой: кнопка появляется
+    // или пропадает
+    const offHome = onHomeScreenChange(() => {
+      if (this.section === this.showRoot) this.showRoot();
+    });
     this.events.once('shutdown', () => {
       this.game.events.off('worms-resize', this._relayout, this);
+      offHome();
     });
   }
 
@@ -182,6 +191,13 @@ export default class MenuScene extends Phaser.Scene {
       () => this.showCampaign());
     this._button('online', cx, y0 + step * 2, 'Онлайн', 'игра вдвоём по ссылке',
       () => this.showOnline());
+
+    // Иконка на экран Домой: открывает игру внутри Telegram сразу в полный
+    // экран. Кнопка есть, только пока Telegram говорит, что иконки нет
+    if (canOfferHomeScreen()) {
+      this._button('home', 132, this.H - 46, '⌂ На экран Домой', '',
+        () => addToHomeScreen(), { w: 228, h: 50 });
+    }
 
     this.items.push(this.add.text(this.W - 16, this.H - 14,
       'ландшафтная ориентация · звука нет', font(11, 700, UI.textDim)).setOrigin(1, 1));
@@ -439,8 +455,10 @@ export default class MenuScene extends Phaser.Scene {
     this.items.push(code);
 
     const link = this.inviteLink(room);
-    this._button('copy', cx, 320, 'Скопировать ссылку', '',
+    // В Telegram зовём родным выбором чата, снаружи — буфером обмена
+    this._button('copy', cx, 320, 'Позвать друга', '',
       () => {
+        if (shareRoom(room, link)) return;
         copyText(link);
         // Подтверждение одно на все нажатия: иначе оно множится стопкой
         if (this.copiedLabel) return;
@@ -454,9 +472,7 @@ export default class MenuScene extends Phaser.Scene {
   }
 
   inviteLink(room) {
-    const url = new URL(location.href);
-    url.searchParams.set('room', room);
-    return url.toString();
+    return tgInviteLink(room);
   }
 
   // ---------------------------------------------------------------- старт
