@@ -67,12 +67,16 @@ export function initTelegram() {
     // Полный экран появился в Bot API 8.0; в компактном режиме ландшафтной
     // игре тесно, поэтому просим его всегда, а не только с иконки.
     if (tg.requestFullscreen) tg.requestFullscreen();
-    // Игра ландшафтная — просим клиент не крутить экран. Работает только в
-    // полноэкранном режиме, поэтому идёт после requestFullscreen.
-    if (tg.lockOrientation) tg.lockOrientation();
   } catch (e) {
     console.warn('[telegram] init failed', e);
   }
+
+  // Ориентацию фиксируем только когда телефон уже повёрнут: lockOrientation
+  // держит ТЕКУЩУЮ ориентацию, а запускают игру обычно в портрете — и
+  // тогда поворот не сработал бы вовсе, подсказка «поверни» висела бы вечно.
+  syncOrientationLock();
+  globalThis.addEventListener?.('resize', syncOrientationLock);
+  globalThis.addEventListener?.('orientationchange', syncOrientationLock);
 
   // Отступы приходят не сразу и меняются при входе в полный экран
   for (const ev of ['safeAreaChanged', 'contentSafeAreaChanged', 'fullscreenChanged', 'viewportChanged']) {
@@ -82,6 +86,27 @@ export function initTelegram() {
   applySafeArea();
   refreshHomeState();
   return tg;
+}
+
+let lockedLandscape = null;
+
+/**
+ * В ландшафте — держать, в портрете — отпустить, чтобы можно было
+ * повернуть. Работает только в полноэкранном режиме (Bot API 8.0), в
+ * компактном методов нет.
+ */
+export function syncOrientationLock() {
+  const tg = tgApi();
+  if (!tg?.lockOrientation || !tg.unlockOrientation) return;
+  const landscape = globalThis.innerWidth > globalThis.innerHeight;
+  if (landscape === lockedLandscape) return;
+  lockedLandscape = landscape;
+  try {
+    if (landscape) tg.lockOrientation();
+    else tg.unlockOrientation();
+  } catch (e) {
+    console.warn('[telegram] orientation', e);
+  }
 }
 
 // ------------------------------------------------------ безопасная область

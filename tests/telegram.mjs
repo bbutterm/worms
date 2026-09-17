@@ -69,6 +69,7 @@ async function openPage({ startParam = null, cloud = {}, local = null, viewport,
       expand() { calls.push('expand'); },
       requestFullscreen() { calls.push('requestFullscreen'); this.isFullscreen = true; fire('fullscreenChanged'); },
       lockOrientation() { calls.push('lockOrientation'); },
+      unlockOrientation() { calls.push('unlockOrientation'); },
       disableVerticalSwipes() { calls.push('disableVerticalSwipes'); },
       setHeaderColor() {}, setBackgroundColor() {}, setBottomBarColor() {},
       onEvent(ev, fn) { listeners.set(ev, [...(listeners.get(ev) ?? []), fn]); },
@@ -241,6 +242,22 @@ const cloudAfter = await page.evaluate(() => JSON.parse(Telegram.WebApp.CloudSto
 check('профиль пишется в облако', cloudAfter?.id === 'tg42', JSON.stringify(cloudAfter));
 
 await page.close();
+
+// ------------------------------------------------- запуск в портрете
+
+// Игру открывают в портрете и поворачивают потом. Если зафиксировать
+// ориентацию сразу, Telegram удержит портрет и поворот не сработает.
+const portrait = await openPage({ viewport: { width: 430, height: 932 } });
+await menuReady(portrait);
+let pc = await calls(portrait);
+check('в портрете ориентация не фиксируется — можно повернуть',
+  !pc.includes('lockOrientation') && pc.includes('unlockOrientation'), pc.join(', '));
+await portrait.setViewportSize({ width: 932, height: 430 });
+await portrait.waitForFunction(() => Telegram.WebApp.__calls.includes('lockOrientation'), null, { timeout: 5000 })
+  .catch(() => {});
+pc = await calls(portrait);
+check('повернули — ландшафт фиксируется', pc.includes('lockOrientation'), pc.join(', '));
+await portrait.close();
 
 // ------------------------------------------- вход по ссылке-приглашению
 
