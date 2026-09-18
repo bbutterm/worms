@@ -43,6 +43,9 @@ export default class GameScene extends Phaser.Scene {
     this.rng = makeRng(this.seed);
     this.turnRng = subRng(this.seed, 0);
     this.explosionLog = [];
+    // Все воронки с начала партии — для соперника, вернувшегося после
+    // обрыва: у него земля чистая, журнал одного хода ему не поможет
+    this.explosionHistory = [];
     this.wind = 0;
     this.replaying = false;   // показываем чужой ход: без урона и разрушений
     this.worms = [];
@@ -203,6 +206,10 @@ export default class GameScene extends Phaser.Scene {
       this.myTeam = this.net.myTeam;
       this.net.onStatus = (text) => this._netStatus(text);
       this._netStatus(this.net.paired ? '' : 'ждём второго игрока…');
+      // Сцена пересобрана с нуля (спарились, вернулись после обрыва):
+      // партия у соперника могла уйти далеко — просим её целиком
+      this.net.sceneReady = true;
+      if (this.net.paired) this.net.requestSync();
       return;
     }
 
@@ -526,8 +533,38 @@ export default class GameScene extends Phaser.Scene {
   _updateNetStatus() {
     if (!this.net?.connected || this.turn.state === STATE.OVER) return;
     const mine = this.turn.currentTeam === this.net.myTeam;
-    const text = mine ? 'ваш ход' : 'ход соперника';
-    if (text !== this.netStatusText) this._netStatus(text, mine ? '#8ef0a0' : '#ffd166');
+    let text = mine ? 'ваш ход' : 'ход соперника';
+    let color = mine ? '#8ef0a0' : '#ffd166';
+    if (this.net.peerLost) {
+      const left = Math.max(0, Math.ceil(CFG.NET_GONE - this.net.peerSilence));
+      text = `соперник не в сети · ждём ${left} с`;
+      color = '#ff9a9a';
+    }
+    if (text !== this.netStatusText) this._netStatus(text, color);
+  }
+
+  /**
+   * Ждать ли ход соперника дальше. Ждём всегда — за него не играем: раньше
+   * через NET_WAIT клиент продолжал один, и партии расходились навсегда.
+   * Если он в сети, но ход не приходит, сообщение могло потеряться —
+   * просим состояние заново. Если его нет NET_GONE секунд — партия наша.
+   */
+  holdForPeer(waited) {
+    const net = this.net;
+    if (!net?.connected) return false;
+    if (net.peerLost) {
+      if (net.peerSilence >= CFG.NET_GONE) { this.onPeerGone(); return false; }
+      return true;
+    }
+    if (waited >= CFG.NET_WAIT) net.requestSync();
+    return true;
+  }
+
+  /** Соперник так и не вернулся: победа оставшемуся. */
+  onPeerGone() {
+    if (this.turn.state === STATE.OVER) return;
+    this.fx.banner('соперник не вернулся', '#ff9a9a', 2600);
+    this.turn._gameOver(this.net.myTeam);
   }
 
   _handleMovement(dt, realDt) {
@@ -798,6 +835,7 @@ export default class GameScene extends Phaser.Scene {
     // разъезжались бы на пиксель, и земля переставала совпадать.
     const ix = Math.round(x), iy = Math.round(y);
     this.explosionLog.push({ x: ix, y: iy, r: cfg.radius });
+    this.explosionHistory.push({ x: ix, y: iy, r: cfg.radius });
     this.terrain.destroyCircle(ix, iy, cfg.radius);
     this.fx.explosion(x, y, cfg.radius);
     this.rig.shake(220, cfg.shake ?? 0.006);
@@ -924,6 +962,8 @@ export default class GameScene extends Phaser.Scene {
     const color = winner >= 0 ? TEAM_COLORS[winner] : 0xffffff;
 
     if (this.match.mode === 'campaign' && winner === mine) markDone(this.match.missionId);
+    // Партия доиграна: запись сессии больше не нужна
+    this.net?.forget();
     this.fx.sound(winner === mine ? 'victory' : 'defeat');
     haptic(winner === mine ? 'win' : 'lose');
     // Первая доигранная партия — момент предложить иконку на экран Домой.
@@ -1023,6 +1063,8 @@ export default class GameScene extends Phaser.Scene {
 
   /** Выход в меню: сетевую сессию рвём, иначе она переживёт партию. */
   toMenu() {
+    // Вышли сами — возвращаться в эту партию не предложим
+    this.net?.forget();
     this.net?.destroy();
     this.registry.set('net', null);
     this.registry.set('seed', null);

@@ -169,13 +169,13 @@ export class TurnManager {
 
   /**
    * Ждём ли сейчас соперника. Ждём — значит очередь не двигаем сами.
-   * Ожидание не вечное: если связь пропала, через NET_WAIT играем дальше
-   * локально, зависшая партия хуже разошедшейся.
+   * Сколько ждать и что делать, если он пропал, решает сцена: там есть
+   * сеть, а здесь только часы.
    */
   _holding(dt) {
     if (!this.scene.awaitingPeer?.()) { this.holdTimer = 0; return false; }
     this.holdTimer = (this.holdTimer ?? 0) + dt;
-    return this.holdTimer < CFG.NET_WAIT;
+    return this.scene.holdForPeer?.(this.holdTimer) ?? this.holdTimer < CFG.NET_WAIT;
   }
 
   /** Следующий живой боец команды по кругу. */

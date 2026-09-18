@@ -106,6 +106,22 @@ export class SupabaseTransport {
     this.channel?.send({ type: 'broadcast', event: 'msg', payload: { ...msg, from: this.id } });
   }
 
+  /**
+   * Вернулись из фона: iOS убивает сокет у свёрнутого приложения. Клиент
+   * Realtime переподключается сам, но не сразу — подталкиваем. Каналы
+   * при этом переподписываются автоматически.
+   */
+  reconnect() {
+    const rt = this.client?.realtime;
+    if (!rt) return;
+    try {
+      if (typeof rt.isConnected === 'function' && rt.isConnected()) return;
+      rt.connect();
+    } catch (e) {
+      console.warn('[net] переподключение', e);
+    }
+  }
+
   close() {
     // Без этого клиент продолжает долбиться в сокет вечно, даже когда мы
     // уже сдались и играем локально

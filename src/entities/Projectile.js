@@ -194,6 +194,11 @@ export class Projectile {
     this.y += (this.vy / speed) * step;
 
     this.terrain.destroyCircle(this.x, this.y, p.digRadius);
+    // В историю — для вернувшегося после обрыва: его земля восстанавливается
+    // из журнала. Показ чужого хода не пишем: у него своя траектория
+    if (!this.scene.replaying) {
+      this.scene.explosionHistory?.push({ x: Math.round(this.x), y: Math.round(this.y), r: p.digRadius });
+    }
 
     if (this.digLeft <= 0 || this.y > this.terrain.height - 4) {
       this.detonate(this.x, this.y);

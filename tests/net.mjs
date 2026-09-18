@@ -184,6 +184,43 @@ for (let round = 1; round <= 3; round++) {
 }
 
 // --- ссылка-приглашение ---
+// --- переподключение: B перезапускается посреди партии ---
+// На телефоне это обычное дело: свернули Telegram, погас экран, Mini App
+// перезапустился. Вернувшийся обязан прийти под тем же именем, взять ту же
+// команду и получить всю партию снимком — включая воронки с начала.
+a = await info(A); b = await info(B);
+const teamBefore = b.myTeam;
+await B.reload({ waitUntil: 'domcontentloaded' });
+const backPaired = await B.waitForFunction(
+  () => window.__WORMS__?.scene.isActive('Game')
+    && window.__WORMS__.scene.getScene('Game').net?.connected === true
+    && window.__WORMS__.scene.getScene('Game').net.synced === true,
+  null, { timeout: 40000 },
+).then(() => true).catch(() => false);
+check('после перезагрузки B снова спарился и получил состояние', backPaired);
+await Promise.all(pages.map((p) => p.waitForTimeout(900)));
+a = await info(A); b = await info(B);
+check('вернувшийся получил ту же команду', b.myTeam === teamBefore, `${teamBefore} → ${b.myTeam}`);
+check('зерно то же', a.seed === b.seed, `${a.seed} / ${b.seed}`);
+check('земля восстановлена из истории воронок', a.terrain === b.terrain, `${a.terrain} / ${b.terrain}`);
+check('очередь, здоровье и позиции совпали',
+  a.turn === b.turn && a.team === b.team && a.hp === b.hp && a.pos === b.pos,
+  `ход ${a.turn}/${b.turn}, ${a.hp} / ${b.hp}`);
+check('свёртка совпала', a.hash === b.hash, `${a.hash} / ${b.hash}`);
+check('A не считает соперника ушедшим', !(await A.evaluate(
+  () => window.__WORMS__.scene.getScene('Game').net.peerLost)));
+
+// И партия продолжается: ещё один ход после возвращения
+{
+  const shooter = a.team === a.myTeam ? A : B;
+  await fire(shooter);
+  await bothNextTurn(a.turn);
+  await Promise.all(pages.map((p) => p.waitForTimeout(700)));
+  a = await info(A); b = await info(B);
+  check('после возвращения партия продолжается синхронно',
+    a.turn === b.turn && a.hash === b.hash, `ход ${a.turn}/${b.turn}, ${a.hash} / ${b.hash}`);
+}
+
 const link = await A.evaluate(() => window.__WORMS__.scene.getScene('Game').inviteLink());
 check('ссылка-приглашение содержит комнату', link.includes(`room=${ROOM}`), link);
 

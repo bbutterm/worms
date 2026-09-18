@@ -1,20 +1,33 @@
 import { captureState, applyState, applyCommand, stateHash } from './protocol.js';
 import { randomId } from './transport.js';
 import { player } from '../platform/player.js';
+import { CFG } from '../config.js';
 
 /**
  * Сетевая партия на двоих.
  *
  * Кто есть кто, решается без сервера: оба шлют приветствие со своим
- * случайным идентификатором и своим зерном, и меньший идентификатор
- * становится первой командой — его зерно и берётся. Схема симметричная,
- * арбитр не нужен, и она одинаково работает и между вкладками, и через
- * Supabase.
+ * идентификатором и своим зерном, и меньший идентификатор становится
+ * первой командой — его зерно и берётся. Схема симметричная, арбитр не
+ * нужен, и она одинаково работает и между вкладками, и через Supabase.
  *
  * Дальше ход принадлежит тому, чья команда сейчас ходит:
  *   • он играет как обычно, его приказ и итоговый снимок уходят второму;
  *   • второй в это время не может вводить ничего, показывает чужой выстрел
  *     по приказу и в конце приводит состояние к снимку.
+ *
+ * Переподключение. На телефоне связь рвётся постоянно: звонок, свернули
+ * Telegram, погас экран, а Mini App при этом часто перезапускается с нуля.
+ * Чтобы партия это пережила:
+ *   • идентификатор сессии не случайный на каждый запуск, а хранится по
+ *     комнате: вернувшийся приходит под тем же именем, и соперник узнаёт
+ *     его, а не принимает за третьего;
+ *   • состояние восстанавливается снимком: вернувшийся просит sync, и
+ *     соперник отдаёт всё — с полной историей воронок с начала партии,
+ *     потому что земля у вернувшегося девственная;
+ *   • раз в NET_PING секунд идёт пинг; кого не слышно NET_LOST секунд —
+ *     «не в сети», и его ход ждут, а не играют за него. Через NET_GONE
+ *     секунд молчания партия засчитывается оставшемуся.
  */
 export class NetSession {
   constructor(scene, transport, room) {
@@ -22,30 +35,58 @@ export class NetSession {
     this.transport = transport;
     this.room = room;
 
-    this.id = transport.id ?? randomId();
+    this.id = sessionIdFor(room);
     this.peerId = null;
     // Имя и рейтинг соперника нужны сразу: их видно в бою и по ним же
     // считается изменение рейтинга в конце
     this.me = player();
     this.opponent = null;
     this.myTeam = null;        // null = ещё не спарились
-    this.seed = scene.seed;
+    // Зерно прошлой встречи в этой комнате: если оба перезапустились,
+    // сойдёмся хотя бы на той же карте, а не на двух разных
+    this.seed = storedSeed(room) ?? scene.seed;
     this.iWantRematch = false;
     this.peerWantsRematch = false;
     this.paired = false;
+    // Сцена собрана под текущую партию. После спаривания она
+    // пересобирается не сразу, а следующим кадром, и отдавать снимок со
+    // старой (ещё локальной) сцены нельзя — соперник принял бы чужую карту
+    this.sceneReady = true;
+    // Получили полное состояние после (пере)спаривания. Пока нет — просим
+    this.synced = false;
     this.lastTurn = 0;         // отсекает опоздавшие приказы
     this.lastPeerSeen = 0;
+    this.lastSyncAsk = 0;
     this.onStatus = null;      // сцена подписывается, чтобы показать статус
+    this._resume = () => this.resume();
   }
 
   get connected() { return this.paired; }
   get myTurn() { return this.myTeam !== null && this.scene.turn.currentTeam === this.myTeam; }
+
+  /** Соперник молчит дольше NET_LOST секунд. До первой встречи — нет. */
+  get peerLost() {
+    return this.paired && Date.now() - this.lastPeerSeen > CFG.NET_LOST * 1000;
+  }
+
+  /** Сколько секунд соперник не в сети. */
+  get peerSilence() {
+    return this.paired ? (Date.now() - this.lastPeerSeen) / 1000 : 0;
+  }
 
   async start() {
     await this.transport.connect(this.room, (msg) => this._onMessage(msg));
     this._hello();
     // Второй игрок мог подключиться раньше и уже отправить своё приветствие
     this.helloTimer = setInterval(() => { if (!this.paired) this._hello(); }, 1200);
+    this.pingTimer = setInterval(() => { if (this.paired) this._ping(); }, CFG.NET_PING * 1000);
+    this.syncTimer = setInterval(() => {
+      if (this.paired && !this.synced && this.sceneReady) this.requestSync();
+    }, 3000);
+    // Вернулись из фона или сеть появилась снова — догоняем
+    globalThis.addEventListener?.('visibilitychange', this._resume);
+    globalThis.addEventListener?.('pageshow', this._resume);
+    globalThis.addEventListener?.('online', this._resume);
     this._status('ждём второго игрока…');
   }
 
@@ -53,7 +94,14 @@ export class NetSession {
     this.transport.send({
       type: 'hello', id: this.id, seed: this.seed,
       name: this.me.name, rating: this.me.rating,
+      // Уже в партии: новичок обязан взять моё зерно и другую команду,
+      // а не считать их из порядка идентификаторов
+      paired: this.paired, team: this.myTeam,
     });
+  }
+
+  _ping() {
+    this.transport.send({ type: 'ping' });
   }
 
   _status(text) {
@@ -61,9 +109,18 @@ export class NetSession {
   }
 
   _onMessage(msg) {
+    // Своё собственное имя в чужом приветствии — две вкладки одного
+    // браузера взяли один сохранённый идентификатор. Берём новый.
+    if (msg.type === 'hello' && msg.id === this.id) {
+      this.id = sessionIdFor(this.room, /* fresh */ true);
+      this._hello();
+      return undefined;
+    }
     this.lastPeerSeen = Date.now();
     switch (msg.type) {
       case 'hello': return this._onHello(msg);
+      case 'ping': return undefined;
+      case 'sync': return this._onSync();
       case 'shot': return this._onShot(msg);
       case 'state': return this._onState(msg);
       case 'rematch': return this._onRematch();
@@ -72,25 +129,73 @@ export class NetSession {
   }
 
   _onHello(msg) {
-    if (this.paired && msg.id === this.peerId) return;
+    if (this.paired) {
+      // Соперник вернулся (перезапуск, свернули и развернули): отвечаем,
+      // чтобы он спарился заново; состояние он попросит сам, когда его
+      // сцена пересоберётся — слать сейчас бесполезно
+      const back = msg.id === this.peerId;
+      if (!back) {
+        // Соперник потерял сохранённый идентификатор и пришёл под новым.
+        // Комната приватная, третьему тут взяться неоткуда
+        this.peerId = msg.id;
+      }
+      this.opponent = { name: msg.name ?? this.opponent?.name ?? 'Соперник',
+        rating: msg.rating ?? this.opponent?.rating ?? 1000 };
+      this._hello();
+      this._status('соперник вернулся');
+      return;
+    }
+
     this.peerId = msg.id;
     this.opponent = { name: msg.name ?? 'Соперник', rating: msg.rating ?? 1000 };
 
-    // Меньший идентификатор — первая команда, и его зерно общее.
-    const iAmFirst = this.id < msg.id;
-    this.myTeam = iAmFirst ? 0 : 1;
-    const seed = iAmFirst ? this.seed : msg.seed;
+    let seed;
+    if (msg.paired && msg.team !== null && msg.team !== undefined) {
+      // Партия уже идёт у него — мы возвращаемся или заменяем выбывшего:
+      // команда — свободная, зерно — его
+      this.myTeam = msg.team === 0 ? 1 : 0;
+      seed = msg.seed;
+    } else {
+      // Меньший идентификатор — первая команда, и его зерно общее.
+      const iAmFirst = this.id < msg.id;
+      this.myTeam = iAmFirst ? 0 : 1;
+      seed = iAmFirst ? this.seed : msg.seed;
+    }
 
     // Отвечаем, чтобы тот, кто пришёл первым, тоже узнал о нас
+    this.paired = true;
+    this.synced = false;
+    this.sceneReady = false;   // сцена пересоберётся под общее зерно
     this._hello();
+    clearInterval(this.helloTimer);
+    this._status(`соперник: ${this.opponent.name} (${this.opponent.rating})`);
+    this.seed = seed;
+    rememberSeed(this.room, seed);
+    this.scene.startNetMatch(seed, this.myTeam);
+  }
 
-    if (!this.paired) {
-      this.paired = true;
-      clearInterval(this.helloTimer);
-      this._status(`соперник: ${this.opponent.name} (${this.opponent.rating})`);
-      this.seed = seed;
-      this.scene.startNetMatch(seed, this.myTeam);
-    }
+  /**
+   * Попросить у соперника полное состояние. Зовётся после перезапуска
+   * сцены и после возвращения из фона; не чаще раза в три секунды, чтобы
+   * подвисшая связь не превращалась в шторм запросов.
+   */
+  requestSync() {
+    if (!this.paired) return false;
+    const now = Date.now();
+    if (now - this.lastSyncAsk < 3000) return false;
+    this.lastSyncAsk = now;
+    this.transport.send({ type: 'sync' });
+    return true;
+  }
+
+  _onSync() {
+    if (!this.paired || !this.sceneReady) return;
+    const state = captureState(this.scene);
+    // Полная история воронок: у вернувшегося земля чистая, ему нужны
+    // все взрывы с начала партии, а не только за этот ход
+    state.explosions = this.scene.explosionHistory.slice();
+    state.full = true;
+    this.transport.send({ type: 'state', state, hash: stateHash(state) });
   }
 
   /**
@@ -99,20 +204,56 @@ export class NetSession {
    * могла уже смениться, и мы выбросили бы нужное сообщение.
    */
   _onShot(msg) {
+    if (!this.sceneReady) return;
     if (msg.cmd.turn < this.lastTurn) return;    // опоздавший приказ
     this.lastTurn = msg.cmd.turn;
     applyCommand(this.scene, msg.cmd);
   }
 
   _onState(msg) {
+    // Полный снимок приходит на sync — и мог прийти в ответ на чужой
+    // запрос. Он безвреден: воронки применяются повторно без следа,
+    // остальное и так совпадает.
+    if (!this.sceneReady) return;   // старая сцена, вот-вот пересоберётся
+    if (msg.state.full) {
+      this.scene.explosionHistory = msg.state.explosions.slice();
+      this.synced = true;
+    } else {
+      // Свои взрывы зритель во время показа не пишет — берём из снимка,
+      // иначе не смогли бы отдать историю вернувшемуся сопернику
+      this.scene.explosionHistory.push(...(msg.state.explosions ?? []));
+    }
     applyState(this.scene, msg.state);
     this.lastTurn = msg.state.turn;
+    if (msg.state.over) {
+      // Партия у соперника уже кончилась (например, нас сочли ушедшими):
+      // добиваем и у себя, чтобы не висеть в чужом ходу
+      const winner = this.scene.checkVictory();
+      if (winner !== null && this.scene.turn.state !== 'over') this.scene.turn._gameOver(winner);
+    }
     const mine = stateHash(captureState(this.scene));
     if (mine !== msg.hash) {
       // Снимок уже применён, партия не сломается, но знать полезно:
       // расхождение здесь означает ошибку в самом протоколе.
       console.warn('[net] состояние разошлось', mine, '!=', msg.hash);
       this.onDiverge?.(mine, msg.hash);
+    }
+  }
+
+  /**
+   * Вернулись из фона: сокет мог умереть, сообщения — потеряться.
+   * Транспорт переподключаем, у соперника просим состояние.
+   */
+  resume() {
+    if (globalThis.document?.hidden) return;
+    this.transport.reconnect?.();
+    if (this.paired) {
+      this.lastSyncAsk = 0;
+      // Дать сокету секунду на переподключение, иначе запрос уйдёт в никуда
+      setTimeout(() => this.requestSync(), 800);
+      setTimeout(() => this.requestSync(), 4000);
+    } else {
+      this._hello();
     }
   }
 
@@ -141,7 +282,11 @@ export class NetSession {
     this.iWantRematch = false;
     this.peerWantsRematch = false;
     this.lastTurn = 0;
-    this.scene.startNetMatch(nextSeed(this.seed), this.myTeam);
+    this.seed = nextSeed(this.seed);
+    rememberSeed(this.room, this.seed);
+    this.sceneReady = false;
+    this.synced = false;
+    this.scene.startNetMatch(this.seed, this.myTeam);
   }
 
   /** Вызывается сценой при выстреле локального игрока. */
@@ -161,8 +306,18 @@ export class NetSession {
     this.transport.send({ type: 'state', state, hash: stateHash(state) });
   }
 
+  /** Партия кончилась или брошена: в неё больше не возвращаемся. */
+  forget() {
+    forgetSession(this.room);
+  }
+
   destroy() {
     clearInterval(this.helloTimer);
+    clearInterval(this.pingTimer);
+    clearInterval(this.syncTimer);
+    globalThis.removeEventListener?.('visibilitychange', this._resume);
+    globalThis.removeEventListener?.('pageshow', this._resume);
+    globalThis.removeEventListener?.('online', this._resume);
     this.transport.close();
   }
 }
@@ -173,4 +328,63 @@ export class NetSession {
  */
 export function nextSeed(seed) {
   return (Math.imul(seed >>> 0, 1103515245) + 12345) >>> 0;
+}
+
+// ------------------------------------------------------------ сессия
+
+const KEY = 'worms.session.v1';
+/** Дольше этого партия точно не живёт — запись устарела. */
+const SESSION_TTL = 2 * 3600 * 1000;
+
+function readSession() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(KEY) || 'null');
+    if (!raw || typeof raw !== 'object') return null;
+    if (Date.now() - (raw.t ?? 0) > SESSION_TTL) return null;
+    return raw;
+  } catch {
+    return null;
+  }
+}
+
+function writeSession(rec) {
+  try { localStorage.setItem(KEY, JSON.stringify(rec)); } catch { /* инкогнито */ }
+}
+
+/**
+ * Идентификатор сессии для комнаты: тот же, что в прошлый раз, если мы
+ * в неё возвращаемся. Так соперник узнаёт вернувшегося.
+ */
+export function sessionIdFor(room, fresh = false) {
+  const rec = readSession();
+  if (!fresh && rec && rec.room === room && rec.id) {
+    writeSession({ ...rec, t: Date.now() });
+    return rec.id;
+  }
+  const id = randomId();
+  writeSession({ room, id, t: Date.now() });
+  return id;
+}
+
+function storedSeed(room) {
+  const rec = readSession();
+  return rec && rec.room === room && Number.isFinite(rec.seed) ? rec.seed : null;
+}
+
+function rememberSeed(room, seed) {
+  const rec = readSession();
+  if (!rec || rec.room !== room) return;
+  writeSession({ ...rec, seed, t: Date.now() });
+}
+
+/** Комната, в которой мы недавно играли и ещё не доиграли, — или null. */
+export function pendingSession() {
+  const rec = readSession();
+  return rec?.room ? { room: rec.room, at: rec.t } : null;
+}
+
+export function forgetSession(room) {
+  const rec = readSession();
+  if (!rec || (room && rec.room !== room)) return;
+  try { localStorage.removeItem(KEY); } catch { /* — */ }
 }

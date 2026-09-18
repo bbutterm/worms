@@ -5,6 +5,7 @@ import { objectiveText } from '../campaign/objectives.js';
 import { quickMatch, campaignMatch, onlineMatch } from '../core/match.js';
 import { randomRoom, copyText } from '../net/transport.js';
 import { Lobby } from '../net/lobby.js';
+import { pendingSession, forgetSession } from '../net/session.js';
 import { makeTransport } from '../net/connect.js';
 import { player, setName } from '../platform/player.js';
 import {
@@ -233,6 +234,17 @@ export default class MenuScene extends Phaser.Scene {
       () => this.showCampaign());
     this._button('online', cx, y0 + step * 2, 'Онлайн', 'игра вдвоём по ссылке',
       () => this.showOnline());
+
+    // Партия оборвалась (Telegram перезапустился, погас экран), а мы
+    // открылись без ссылки: предлагаем вернуться, пока соперник ждёт
+    const pending = pendingSession();
+    if (pending && Date.now() - pending.at < 15 * 60 * 1000) {
+      this._button('resume', cx, y0 + step * 3, 'Вернуться в бой',
+        `комната ${pending.room} · соперник ждёт`, () => this.startOnline(pending.room),
+        { variant: 'primary' });
+      this._button('resume-no', cx + 300, y0 + step * 3, '✕', '',
+        () => { forgetSession(pending.room); this.showRoot(); }, { w: 56, h: 56 });
+    }
 
     // Иконка на экран Домой: открывает игру внутри Telegram сразу в полный
     // экран. Кнопка есть, только пока Telegram говорит, что иконки нет
