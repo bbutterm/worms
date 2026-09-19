@@ -23,6 +23,7 @@ import { Bot } from '../ai/Bot.js';
 import { markDone, MISSION_BY_ID } from '../campaign/missions.js';
 import { checkObjective, snapshot, objectiveText } from '../campaign/objectives.js';
 import { player, eloDelta, recordResult } from '../platform/player.js';
+import { reportResult, serverAvailable } from '../net/server.js';
 import { leagueOf, nextLeague, toNextLeague } from '../platform/league.js';
 import { OffscreenMarkers } from '../ui/OffscreenMarkers.js';
 import { CameraRig } from '../ui/CameraRig.js';
@@ -585,6 +586,37 @@ export default class GameScene extends Phaser.Scene {
     return true;
   }
 
+  /**
+   * Итог — серверу. Локальный расчёт уже на экране как предварительный;
+   * ответ сервера дописывает строку: засчитано, ждём соперника или бой без
+   * рейтинга. Только в Telegram: анонима сервер подтвердить не может.
+   */
+  _reportToServer(won, ratingText, leagueText) {
+    if (!serverAvailable() || !this.net?.opponent?.id) return;
+    const me = player();
+    const before = me.rating;
+    ratingText.setText(`${ratingText.text} · отправляю…`);
+    reportResult({ room: this.room, seed: this.seed, opponent: this.net.opponent.id, won })
+      .then((res) => {
+        if (!ratingText.active) return;
+        const now = player();
+        const base = `рейтинг ${now.rating}`;
+        if (res?.status === 'confirmed') {
+          const d = res.delta ?? now.rating - before;
+          ratingText.setText(`${base} (${d >= 0 ? '+' : ''}${d}) · засчитано`);
+        } else if (res?.status === 'pending') {
+          ratingText.setText(`${base} · ждём отчёт соперника`);
+        } else if (res?.status === 'unrated') {
+          ratingText.setText(`${base} · без рейтинга: соперник не из Telegram`);
+        } else if (res?.status === 'disputed') {
+          ratingText.setText(`${base} · итоги разошлись, бой не засчитан`);
+        } else {
+          ratingText.setText(`${base} · сервер недоступен, засчитано локально`);
+        }
+        leagueText.setColor(leagueOf(now.rating).text);
+      });
+  }
+
   /** Соперник так и не вернулся: победа оставшемуся. */
   onPeerGone() {
     if (this.turn.state === STATE.OVER) return;
@@ -1043,12 +1075,13 @@ export default class GameScene extends Phaser.Scene {
     // возвращаются в лобби; в кампании — к списку миссий.
     const backToMenu = this.match.mode !== 'quick';
     if (ratingLine) {
-      this.rig.ui(this.add.text(CFG.VIEW_W / 2, CFG.VIEW_H / 2 + 12, ratingLine,
+      const ratingText = this.rig.ui(this.add.text(CFG.VIEW_W / 2, CFG.VIEW_H / 2 + 12, ratingLine,
         font(20, 800, UI.accent)).setOrigin(0.5).setScrollFactor(0)
         .setDepth(DEPTH.HUD + 11));
-      this.rig.ui(this.add.text(CFG.VIEW_W / 2, CFG.VIEW_H / 2 + 38, leagueLine,
+      const leagueText = this.rig.ui(this.add.text(CFG.VIEW_W / 2, CFG.VIEW_H / 2 + 38, leagueLine,
         font(14, 800, leagueOf(player().rating).text)).setOrigin(0.5).setScrollFactor(0)
         .setDepth(DEPTH.HUD + 11));
+      this._reportToServer(winner === mine, ratingText, leagueText);
     }
     const sub = this.add.text(CFG.VIEW_W / 2, CFG.VIEW_H / 2 + (ratingLine ? 68 : 32),
       backToMenu ? 'тап — в меню' : 'тап или R — новая карта',

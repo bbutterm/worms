@@ -100,6 +100,32 @@ async function openPage({ startParam = null, cloud = {}, local = null, viewport,
     }
     globalThis.Telegram = { WebApp };
     globalThis.WORMS_TG = { bot: 'worms_test_bot' };
+    // Сервер рейтинга: настоящий из теста недоступен, отвечает заглушка,
+    // которая помнит, что у неё спрашивали
+    const realFetch = globalThis.fetch.bind(globalThis);
+    globalThis.__server = { calls: [] };
+    globalThis.fetch = async (url, opts = {}) => {
+      const u = String(url);
+      const reply = (body, status = 200) => new Response(JSON.stringify(body), {
+        status, headers: { 'content-type': 'application/json' },
+      });
+      if (u.includes('/functions/v1/worms-result')) {
+        const body = JSON.parse(opts.body ?? '{}');
+        globalThis.__server.calls.push({ ...body, apikey: opts.headers?.apikey });
+        const player = { id: 'tg42', name: 'Тест Телеграмов', rating: 1300, wins: 6, losses: 2 };
+        if (body.action === 'me') return reply({ player });
+        return reply({ status: 'confirmed', delta: 12, player: { ...player, rating: 1312, wins: 7 } });
+      }
+      if (u.includes('/rest/v1/worms_player')) {
+        globalThis.__server.calls.push({ action: 'top', apikey: opts.headers?.apikey });
+        return reply([
+          { id: 'tg1', name: 'Оля', rating: 1510, wins: 20, losses: 4 },
+          { id: 'tg42', name: 'Тест Телеграмов', rating: 1300, wins: 6, losses: 2 },
+          { id: 'tg2', name: 'Петя', rating: 990, wins: 3, losses: 9 },
+        ]);
+      }
+      return realFetch(url, opts);
+    };
     if (local) localStorage.setItem('worms.player.v1', JSON.stringify(local));
     // Сеть здесь не проверяется: транспорт-пустышка, чтобы лобби и
     // комната не ломились в настоящий сервис
@@ -248,6 +274,44 @@ check('второй раз иконку не предлагают', offersAfter 
 // Результат боя ушёл в облако
 const cloudAfter = await page.evaluate(() => JSON.parse(Telegram.WebApp.CloudStorage.__store.get('worms.player.v1')));
 check('профиль пишется в облако', cloudAfter?.id === 'tg42', JSON.stringify(cloudAfter));
+
+// -------------------------------------------------- сервер рейтинга
+
+// Профиль подтягивается с сервера при входе в «Онлайн», таблица лидеров
+// читается публичным ключом, а итог боя уходит с подписанным initData
+await page.evaluate(() => window.__WORMS__.scene.getScene('Menu').showOnline());
+await page.waitForFunction(() => Telegram.WebApp.__calls && globalThis.__server.calls.some((c) => c.action === 'me'),
+  null, { timeout: 5000 }).catch(() => {});
+const srv = await page.evaluate(() => ({
+  calls: globalThis.__server.calls,
+  me: JSON.parse(localStorage.getItem('worms.player.v1')),
+}));
+const meCall = srv.calls.find((c) => c.action === 'me');
+check('при входе в «Онлайн» профиль запрошен у сервера с подписью Telegram',
+  Boolean(meCall) && typeof meCall.initData === 'string' && meCall.initData.includes('hash='),
+  meCall ? `apikey ${String(meCall.apikey).slice(0, 14)}…` : 'запроса не было');
+check('числа сервера стали главными', srv.me.rating === 1300 && srv.me.wins === 6,
+  `рейтинг ${srv.me.rating}, побед ${srv.me.wins}`);
+
+await page.evaluate(() => window.__WORMS__.scene.getScene('Menu').showTop());
+const top = await page.waitForFunction(() => {
+  const m = window.__WORMS__.scene.getScene('Menu');
+  return m.topRows?.length === 3 && m.items.some((o) => o.text === 'Оля') && m.items.some((o) => o.text === 'ты на 2 месте');
+}, null, { timeout: 8000 }).then(() => true).catch(() => false);
+check('таблица лидеров показывает игроков и моё место', top);
+
+const rep = await page.evaluate(async () => {
+  const srvMod = await import('/src/net/server.js');
+  const res = await srvMod.reportResult({ room: 'ABC123', seed: 777, opponent: 'tg1', won: true });
+  const call = globalThis.__server.calls.find((c) => c.action === 'result');
+  return { res, call, me: JSON.parse(localStorage.getItem('worms.player.v1')) };
+});
+check('итог боя уходит серверу: комната, зерно, соперник, исход',
+  rep.call?.room === 'ABC123' && rep.call.seed === 777 && rep.call.opponent === 'tg1' && rep.call.won === true
+    && rep.call.initData.includes('hash='), JSON.stringify(rep.call ?? null).slice(0, 120));
+check('подтверждённый бой переписывает рейтинг числами сервера',
+  rep.res?.status === 'confirmed' && rep.me.rating === 1312 && rep.me.wins === 7,
+  `рейтинг ${rep.me.rating}, побед ${rep.me.wins}`);
 
 await page.close();
 

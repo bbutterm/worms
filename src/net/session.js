@@ -94,6 +94,7 @@ export class NetSession {
     this.transport.send({
       type: 'hello', id: this.id, seed: this.seed,
       name: this.me.name, rating: this.me.rating,
+      pid: this.me.id,   // кто это по паспорту (tg<id>) — для отчёта серверу
       // Уже в партии: новичок обязан взять моё зерно и другую команду,
       // а не считать их из порядка идентификаторов
       paired: this.paired, team: this.myTeam,
@@ -156,7 +157,8 @@ export class NetSession {
         // Комната приватная, третьему тут взяться неоткуда
         this.peerId = msg.id;
       }
-      this.opponent = { name: msg.name ?? this.opponent?.name ?? 'Соперник',
+      this.opponent = { id: msg.pid ?? this.opponent?.id ?? null,
+        name: msg.name ?? this.opponent?.name ?? 'Соперник',
         rating: msg.rating ?? this.opponent?.rating ?? 1000 };
       this._hello();
       this._status('соперник вернулся');
@@ -164,7 +166,7 @@ export class NetSession {
     }
 
     this.peerId = msg.id;
-    this.opponent = { name: msg.name ?? 'Соперник', rating: msg.rating ?? 1000 };
+    this.opponent = { id: msg.pid ?? null, name: msg.name ?? 'Соперник', rating: msg.rating ?? 1000 };
 
     let seed;
     if (msg.paired && msg.team !== null && msg.team !== undefined) {

@@ -105,6 +105,20 @@ export function player() {
   return cached;
 }
 
+/**
+ * Сервер подтвердил бой или прислал профиль: его числа главные. Локальный
+ * Эло — только предварительный показ, пока ответа нет.
+ */
+export function adoptServer(row) {
+  if (!row || typeof row !== 'object') return player();
+  const p = player();
+  if (Number.isFinite(row.rating)) p.rating = row.rating;
+  if (Number.isFinite(row.wins)) p.wins = row.wins;
+  if (Number.isFinite(row.losses)) p.losses = row.losses;
+  save(p);
+  return p;
+}
+
 export function setName(name) {
   const p = player();
   p.name = String(name).trim().slice(0, 20) || p.name;

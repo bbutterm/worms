@@ -6,6 +6,7 @@ import { quickMatch, campaignMatch, onlineMatch } from '../core/match.js';
 import { randomRoom, copyText } from '../net/transport.js';
 import { Lobby } from '../net/lobby.js';
 import { pendingSession, forgetSession } from '../net/session.js';
+import { syncMe, fetchTop, myRank } from '../net/server.js';
 import { makeTransport } from '../net/connect.js';
 import { player, setName } from '../platform/player.js';
 import {
@@ -354,6 +355,9 @@ export default class MenuScene extends Phaser.Scene {
   showOnline() {
     this.section = this.showOnline;
     this._clear();
+    // Профиль с сервера (только в Telegram): рейтинг там главный. Придёт —
+    // раздел перерисуется с настоящими числами
+    syncMe().then((row) => { if (row && this.section === this.showOnline) this.showOnline(); });
     const me = player();
     this._title('Онлайн', leagueLabel(me.rating));
     const cx = this.W / 2;
@@ -382,10 +386,63 @@ export default class MenuScene extends Phaser.Scene {
     // Код от друга — редкий путь, кнопка маленькая и внизу
     this._button('join', this.W - 108, this.bottomY(46), 'по коду', '',
       () => this.askCode(), { w: 180, h: 50 });
+    this._button('top', this.W - 300, this.bottomY(46), '🏆 Топ', '',
+      () => this.showTop(), { w: 170, h: 50 });
 
     this._back();
     this._ensureLobby();
     this._showTables(this.lobby?.tables() ?? []);
+  }
+
+  /**
+   * Таблица лидеров с сервера. Видна всем, но попасть в неё можно только
+   * из Telegram: сервер знает лишь тех, чью личность подтвердил.
+   */
+  showTop() {
+    this.section = this.showTop;
+    this._clear();
+    this._title('Топ игроков', 'рейтинг по подтверждённым боям');
+    const cx = this.W / 2;
+    const note = this.add.text(cx, 150, 'загружаю…', font(14, 700, UI.textDim)).setOrigin(0.5, 0);
+    this.items.push(note);
+    this._back(() => this.showOnline());
+
+    fetchTop(20).then((rows) => {
+      if (this.section !== this.showTop) return;
+      this.topRows = rows;
+      note.destroy();
+      this._renderTop(rows);
+    }).catch((e) => {
+      if (this.section !== this.showTop) return;
+      note.setText(`сервер недоступен: ${e.message}`);
+    });
+  }
+
+  _renderTop(rows) {
+    const cx = this.W / 2;
+    const me = player();
+    const x0 = cx - 300, top = 146, step = 32;
+    const maxRows = Math.max(3, Math.floor((this.bottomY(70) - top) / step));
+    if (!rows.length) {
+      this.items.push(this.add.text(cx, top, 'пока пусто — сыграй первый бой из Telegram',
+        font(14, 700, UI.textDim)).setOrigin(0.5, 0));
+      return;
+    }
+    rows.slice(0, maxRows).forEach((r, i) => {
+      const y = top + i * step;
+      const mine = r.id === me.id;
+      const color = mine ? UI.accent : UI.text;
+      this.items.push(this.add.text(x0, y, `${i + 1}.`, font(15, 800, UI.textDim)).setOrigin(0, 0));
+      this.items.push(this.add.text(x0 + 40, y, r.name, font(15, 800, color)).setOrigin(0, 0));
+      this.items.push(this.add.text(x0 + 330, y, leagueLabel(r.rating),
+        font(13, 700, leagueOf(r.rating).text)).setOrigin(0, 0));
+      this.items.push(this.add.text(x0 + 600, y, `${r.wins}–${r.losses}`,
+        font(13, 700, UI.textDim)).setOrigin(1, 0));
+    });
+    const rank = myRank(rows);
+    const foot = rank ? `ты на ${rank} месте` : me.telegram
+      ? 'тебя пока нет в таблице — доиграй бой' : 'в таблицу попадают игроки из Telegram';
+    this.items.push(this.add.text(cx, this.bottomY(74), foot, font(12, 700, UI.textDim)).setOrigin(0.5, 1));
   }
 
   /** Своя открытая игра: комната случайная, стол виден в лобби. */
