@@ -194,6 +194,7 @@ export default class GameScene extends Phaser.Scene {
       this.net.scene = this;
       this.myTeam = this.net.myTeam;
       this.net.onStatus = (text) => this._netStatus(text);
+      this.net.onDiverge = () => this.fx.banner('земля разошлась · синхронизирую', '#ffd166', 1600);
       this._netStatus(this.net.paired ? '' : 'ждём второго игрока…');
       // Сцена пересобрана с нуля (спарились, вернулись после обрыва):
       // партия у соперника могла уйти далеко — просим её целиком
@@ -206,6 +207,7 @@ export default class GameScene extends Phaser.Scene {
     makeTransport().then((transport) => {
       this.net = new NetSession(this, transport, room);
       this.net.onStatus = (text) => this._netStatus(text);
+      this.net.onDiverge = () => this.fx.banner('земля разошлась · синхронизирую', '#ffd166', 1600);
       this.registry.set('net', this.net);
       // Пришли по ссылке, минуя лобби: хозяин может ждать на экране стола
       // и услышит только стук через лобби

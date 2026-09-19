@@ -103,6 +103,15 @@ export function applyMove(scene, m) {
   w.facing = m.facing;
   w.vx = 0;
   w.vy = 0;
+  // Координаты чужие, земля своя: если они хоть на пиксель разошлись,
+  // боец окажется в склоне. Поднимаем ноги до ближайшей свободной точки
+  // над местной поверхностью — картинке важнее не провалиться, чем
+  // совпасть с соперником до пикселя
+  if (!w.bodyClear(w.x, w.y)) {
+    for (let dy = 1; dy <= 48; dy++) {
+      if (w.bodyClear(w.x, w.y - dy)) { w.y -= dy; break; }
+    }
+  }
   w.grounded = w.supported(w.x, w.y);
 
   scene.aimAngle = m.aim;

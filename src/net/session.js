@@ -196,11 +196,14 @@ export class NetSession {
    * сцены и после возвращения из фона; не чаще раза в три секунды, чтобы
    * подвисшая связь не превращалась в шторм запросов.
    */
-  requestSync() {
+  requestSync(force = false) {
     if (!this.paired) return false;
     const now = Date.now();
     if (now - this.lastSyncAsk < 3000) return false;
     this.lastSyncAsk = now;
+    // Принудительный: следующий полный снимок применить, даже если по
+    // номеру хода мы не отстали, — земля или позиции разошлись
+    if (force) this.forceFull = true;
     this.transport.send({ type: 'sync' });
     return true;
   }
@@ -235,11 +238,12 @@ export class NetSession {
     // Когда мы уже в курсе, переприменять полный снимок нельзя: посреди
     // своего хода он сбросил бы прицел и таймер и убил бы наш снаряд.
     // Берём его, только если отстали.
-    if (msg.state.full && this.synced) {
+    if (msg.state.full && this.synced && !this.forceFull) {
       const t = this.scene.turn;
       const behind = msg.state.turn > t.turnNumber || (msg.state.over && t.state !== 'over');
       if (!behind) return;
     }
+    this.forceFull = false;
     if (msg.state.full) {
       this.scene.explosionHistory = msg.state.explosions.slice();
       this.synced = true;
@@ -262,6 +266,13 @@ export class NetSession {
       // расхождение здесь означает ошибку в самом протоколе.
       console.warn('[net] состояние разошлось', mine, '!=', msg.hash);
       this.onDiverge?.(mine, msg.hash);
+      // Лечим полной историей воронок — раз за ход и только не в свой ход,
+      // чтобы полный снимок не сбил нам прицел
+      const turnNo = this.scene.turn.turnNumber;
+      if (!msg.state.full && !this.myTurn && this.healedTurn !== turnNo) {
+        this.healedTurn = turnNo;
+        this.requestSync(true);
+      }
     }
   }
 
