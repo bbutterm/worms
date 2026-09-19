@@ -138,6 +138,12 @@ export function safeArea() {
     bottom: n(a.bottom) + n(b.bottom),
     left: n(a.left) + n(b.left),
     right: n(a.right) + n(b.right),
+    // Кнопки Telegram («Close», «…») сидят только в верхних углах, середина
+    // верхней полосы свободна. Ширину углов клиент не сообщает; на iPhone
+    // в ландшафте кнопка кончается примерно в 110 CSS-пикселях от края
+    // безопасной области — берём с запасом. Панель боя благодаря этому
+    // стоит у самого верха, а от кнопок отступают только её края.
+    corner: n(b.top) > 0 ? 130 : 0,
   };
 }
 
@@ -155,6 +161,7 @@ export function screenInsets() {
   return {
     top: n(cs.paddingTop), bottom: n(cs.paddingBottom),
     left: n(cs.paddingLeft), right: n(cs.paddingRight),
+    corner: 0,
   };
 }
 

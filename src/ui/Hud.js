@@ -66,10 +66,14 @@ export class Hud {
     }
     this.fix(s.add.image(0, 0, key).setOrigin(0, 0).setDisplaySize(W, TOP_H));
 
+    // В полноэкранном Telegram по углам панели лежат кнопки клиента:
+    // левый и правый блоки отодвигаются от них, середина остаётся на месте
+    const pad = CFG.CORNER || 0;
+
     // Кто ходит: цветная метка команды + имя бойца
-    this.teamChip = this.fix(s.add.rectangle(16, 14, 6, 32, 0xffffff).setOrigin(0, 0));
-    this.turnText = this.fix(s.add.text(32, 10, '', font(19, 800)));
-    this.subText = this.fix(s.add.text(32, 35, '', font(12, 700, UI.textDim)));
+    this.teamChip = this.fix(s.add.rectangle(16 + pad, 14, 6, 32, 0xffffff).setOrigin(0, 0));
+    this.turnText = this.fix(s.add.text(32 + pad, 10, '', font(19, 800)));
+    this.subText = this.fix(s.add.text(32 + pad, 35, '', font(12, 700, UI.textDim)));
 
     // Таймер по центру — кольцо вокруг цифры
     this.timerGfx = this.fix(s.add.graphics());
@@ -94,10 +98,10 @@ export class Hud {
       this.teamBars.push({ bar, cnt, width: barW - 4 });
     }
 
-    this.fix(s.add.text(W - 16, 8, 'ВЕТЕР', font(11, 700, UI.textDim)).setOrigin(1, 0));
-    this.windText = this.fix(s.add.text(W - 16, 22, '0', font(17, 800)).setOrigin(1, 0));
+    this.fix(s.add.text(W - 16 - pad, 8, 'ВЕТЕР', font(11, 700, UI.textDim)).setOrigin(1, 0));
+    this.windText = this.fix(s.add.text(W - 16 - pad, 22, '0', font(17, 800)).setOrigin(1, 0));
     this.windGfx = this.fix(s.add.graphics());
-    this.windCx = W - 150;
+    this.windCx = W - 150 - pad;
     this.windCy = 38;
   }
 

@@ -168,8 +168,10 @@ const area = await page.evaluate(() => {
 });
 check('канвас на весь экран, включая «чёлку» и полосу кнопок Telegram',
   area.full, area.canvas);
-check('интерфейс отступает от кнопок Telegram и от «чёлки»',
-  Math.abs(area.top - 46) <= 1 && Math.abs(area.left - 47) <= 1
+// Сверху рамки нет: кнопки Telegram сидят в углах, и отступают от них
+// только края верхней панели боя. По бокам — «чёлка», снизу — полоска
+check('интерфейс отступает от «чёлки» и снизу, но идёт до самого верха',
+  area.top === 0 && Math.abs(area.left - 47) <= 1
     && Math.abs(area.right - 47) <= 1 && Math.abs(area.bottom - 21) <= 1 && area.uiH === 720,
   `сверху ${area.top}, слева ${area.left}, справа ${area.right}, снизу ${area.bottom}`);
 
@@ -296,14 +298,19 @@ const fit = await portrait.evaluate(() => {
 });
 check('после поворота канвас — экран плюс рамка, интерфейс внутри канваса',
   fit.inside && fit.full, `канвас ${fit.game}, интерфейс ${fit.ui}`);
-const shade = await portrait.evaluate(() => {
-  const s = window.__WORMS__.scene.getScene('Game');
-  const sh = s.topShade;
-  return sh ? { y: sh.y, h: sh.height, w: sh.width, uiTop: s.rig.uiCam.y } : null;
+const bar = await portrait.evaluate(() => {
+  const g = window.__WORMS__;
+  const s = g.scene.getScene('Game');
+  const k = g.canvas.getBoundingClientRect().width / g.scale.width;
+  return {
+    uiTop: s.rig.uiCam.y,
+    nameLeftCss: Math.round((s.rig.uiCam.x + s.hud.turnText.x) * k),
+    windRightCss: Math.round(innerWidth - (s.rig.uiCam.x + s.hud.windText.x) * k),
+  };
 });
-check('под кнопками Telegram — тёмная подложка от верха до низа панели',
-  Boolean(shade) && shade.y === 0 && shade.h === shade.uiTop + 62,
-  shade ? `высота ${shade.h}, панель с ${shade.uiTop}` : 'подложки нет');
+check('панель боя у самого верха, а её края отступают от кнопок Telegram',
+  bar.uiTop === 0 && bar.nameLeftCss >= 47 + 130 && bar.windRightCss >= 47 + 130,
+  `панель с ${bar.uiTop}, имя бойца в ${bar.nameLeftCss} CSS px от края, ветер в ${bar.windRightCss}`);
 check('кнопка «Огонь» после поворота на экране', fit.fireOnScreen);
 await portrait.evaluate(() => window.__WORMS__.scene.getScene('Game').toMenu());
 await menuReady(portrait);

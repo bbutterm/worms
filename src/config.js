@@ -12,7 +12,10 @@ export const CFG = {
   // Рамка вокруг логического экрана, в логических пикселях: безопасная
   // область («чёлка», кнопки Telegram). Канвас на весь экран, мир и небо
   // рисуются до краёв, а интерфейс живёт внутри рамки. См. fitViewToScreen.
+  // Сверху рамки нет: кнопки Telegram сидят в углах, и от них отступают
+  // только края верхней панели — на CORNER логических пикселей.
   FRAME: { left: 0, top: 0, right: 0, bottom: 0 },
+  CORNER: 0,
   WORLD_W: 3200,           // карта ~2.5x шире экрана, камера следит
   WORLD_H: 720,
 
@@ -154,7 +157,9 @@ export function fitViewToScreen(screenW, screenH, inset = null) {
   if (!screenW || !screenH) return CFG.VIEW_W;
   const i = inset ?? { left: 0, top: 0, right: 0, bottom: 0 };
   const safeW = Math.max(1, screenW - i.left - i.right);
-  const safeH = Math.max(1, screenH - i.top - i.bottom);
+  // Верхний отступ в высоту не входит: кнопки Telegram занимают только
+  // углы, и панель боя идёт до самого верха, отступая от них по краям
+  const safeH = Math.max(1, screenH - i.bottom);
   const portrait = safeH > safeW;
 
   // Масштаб один в обеих ориентациях: короткая сторона безопасной области
@@ -176,9 +181,10 @@ export function fitViewToScreen(screenW, screenH, inset = null) {
   // Рамка: те же отступы в логических пикселях.
   const k = CFG.VIEW_BASE / short;
   CFG.FRAME = {
-    left: Math.round(i.left * k), top: Math.round(i.top * k),
+    left: Math.round(i.left * k), top: 0,
     right: Math.round(i.right * k), bottom: Math.round(i.bottom * k),
   };
+  CFG.CORNER = Math.round((i.corner ?? 0) * k);
   return CFG.VIEW_W;
 }
 
