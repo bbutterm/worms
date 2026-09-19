@@ -113,6 +113,9 @@ export function applyMove(scene, m) {
     }
   }
   w.grounded = w.supported(w.x, w.y);
+  // Приземлился у соперника — складываем парашют и у нас: иначе боец
+  // «на земле» с раскрытым куполом висел бы так вечно, а с ним и ход
+  if (w.grounded && w.parachuting) w.foldChute();
 
   scene.aimAngle = m.aim;
   scene.remoteAim = true;
@@ -189,6 +192,8 @@ export function applyState(scene, state) {
     }
     w.health = s.hp;
     w.grounded = w.supported(w.x, w.y);
+    // У соперника десант уже приземлился, а у нас парашют ещё раскрыт
+    if (w.grounded && w.parachuting) w.foldChute();
   });
 
   scene.turn.ammo = state.ammo.map((row) => row.slice());

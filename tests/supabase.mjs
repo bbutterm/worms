@@ -77,7 +77,7 @@ page.on('console', (m) => {
 });
 
 await page.goto(`${BASE}/?biome=forest&room=WIRING`, { waitUntil: 'domcontentloaded' });
-await page.waitForFunction(() => window.__WORMS__?.scene.getScene('Game')?.turn?.activeWorm,
+await page.waitForFunction(() => window.__WORMS__?.scene.getScene('Game')?.turn?.activeWorm && !window.__WORMS__.scene.getScene('Game').landing(),
   null, { timeout: 40000 });
 await page.waitForTimeout(9000);
 const early = attempts.length;

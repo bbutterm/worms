@@ -53,7 +53,7 @@ await page.goto(`${URL}/?biome=${BIOME}${seedParam}`, { waitUntil: 'domcontentlo
 
 const ready = () => page.waitForFunction(
   () => window.__WORMS__?.scene.isActive('Game')
-    && window.__WORMS__.scene.getScene('Game').turn?.activeWorm,
+    && window.__WORMS__.scene.getScene('Game').turn?.activeWorm && !window.__WORMS__.scene.getScene('Game').landing(),
   null, { timeout: 40000 },
 );
 const state = () => page.evaluate(() => {
@@ -614,7 +614,7 @@ check('случайность хода не зависит от порядка �
   repro.a.turn7.split('|').every((v, _, arr) => v === arr[0]), repro.a.turn7);
 
 // --- протокол: приказ и снимок ---
-await page.waitForFunction(() => window.__WORMS__.scene.getScene('Game').turn?.activeWorm,
+await page.waitForFunction(() => window.__WORMS__.scene.getScene('Game').turn?.activeWorm && !window.__WORMS__.scene.getScene('Game').landing(),
   null, { timeout: 40000 });
 await page.waitForTimeout(800);
 const proto = await page.evaluate(async () => {

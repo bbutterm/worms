@@ -31,8 +31,47 @@ export class Worm {
     this.facing = 1;
     this.walking = false;
     this.fallStartY = y;
+    this.parachuting = false;   // спускается на парашюте: медленно и без урона
+    this.chute = null;
 
     this._buildView();
+  }
+
+  /**
+   * Раскрыть парашют: спуск равномерный, приземление без урона.
+   *
+   * Спрайт из оригинала — червяк уже висит под куполом, поэтому на время
+   * спуска обычный вид прячется и рисуется он один. Без спрайта — купол
+   * от ящика над головой.
+   */
+  deployChute() {
+    this.parachuting = true;
+    this.grounded = false;
+    this.vy = Math.min(this.vy, CFG.CHUTE_SPEED);
+    const s = this.scene;
+    if (this.chute) return;
+    if (has(s, 'worm_chute')) {
+      this.chute = s.rig.world(s.add.image(this.x, this.y + 2, 'worm_chute')
+        .setOrigin(0.5, 1).setDepth(DEPTH.WORM));
+      this.chuteWhole = true;
+      this.view.setVisible(false);
+      this.eye?.setVisible(false);
+    } else if (has(s, 'crate_chute')) {
+      this.chute = s.rig.world(s.add.image(this.x, this.y - CFG.WORM_H - 8, 'crate_chute')
+        .setOrigin(0.5, 1).setDepth(DEPTH.WORM + 1));
+      this.chuteWhole = false;
+    }
+  }
+
+  /** Сложить парашют: приземлились или сняли извне. */
+  foldChute() {
+    this.parachuting = false;
+    if (this.chute) { this.chute.destroy(); this.chute = null; }
+    if (this.chuteWhole) {
+      this.view.setVisible(this.alive);
+      this.eye?.setVisible(this.alive);
+      this.chuteWhole = false;
+    }
   }
 
   _buildView() {
@@ -160,6 +199,7 @@ export class Worm {
     const y = this.footYAt(this.x, this.y);
     if (y !== null && this.bodyClear(this.x, y)) this.y = y;
     this.grounded = this.supported(this.x, this.y);
+    if (this.grounded && this.parachuting) this.foldChute();
   }
 
   // ------------------------------------------------------------- механика
@@ -286,6 +326,8 @@ export class Worm {
     const sdt = dt / CFG.SUBSTEPS;
     for (let i = 0; i < CFG.SUBSTEPS && this.alive && !this.grounded; i++) {
       this.vy += CFG.GRAVITY * sdt;
+      // Парашют держит скорость спуска, вбок не сносит
+      if (this.parachuting) { this.vy = Math.min(this.vy, CFG.CHUTE_SPEED); this.vx = 0; }
       this.vx *= Math.exp(-CFG.AIR_FRICTION * sdt);
 
       const dx = this.vx * sdt;
@@ -331,6 +373,7 @@ export class Worm {
     const drop = this.y - this.fallStartY;
     this.vy = 0;
     this.vx *= 0.3;
+    if (this.parachuting) { this.foldChute(); this.fallStartY = this.y; return; }
     if (drop > CFG.FALL_SAFE) {
       const dmg = Math.min(CFG.FALL_DMG_MAX, (drop - CFG.FALL_SAFE) * CFG.FALL_DMG_PER_PX);
       this.damage(Math.round(dmg), 'падение');
@@ -362,6 +405,7 @@ export class Worm {
   }
 
   kill(cause = '') {
+    this.foldChute();
     if (!this.alive) return;
     this.alive = false;
     this.health = 0;
@@ -422,17 +466,30 @@ export class Worm {
     }
 
     if (this.eye) this.eye.setPosition(rx + this.facing * 6, ry - CFG.WORM_H + 9);
+    // Купол: под ним боец целиком — покачиваем; над головой — просто держим
+    let lift = 0;
+    if (this.chute) {
+      if (this.chuteWhole) {
+        this.chute.setPosition(rx, ry + 2);
+        this.chute.setRotation(Math.sin(this.scene.time.now / 320) * 0.14);
+        if (this.chute.setFlipX) this.chute.setFlipX(this.facing > 0);
+        lift = this.chute.displayHeight - CFG.WORM_H + 4;
+      } else {
+        this.chute.setPosition(rx, ry - CFG.WORM_H - 8);
+        lift = this.chute.displayHeight + 4;
+      }
+    }
 
-    this.label.setPosition(rx, ry - CFG.WORM_H - 20);
+    this.label.setPosition(rx, ry - CFG.WORM_H - 20 - lift);
     this.label.setText(`${this.health}`);
-    this.barBg.setPosition(rx, ry - CFG.WORM_H - 7);
-    this.bar.setPosition(rx - HP_BAR_W / 2, ry - CFG.WORM_H - 7);
+    this.barBg.setPosition(rx, ry - CFG.WORM_H - 7 - lift);
+    this.bar.setPosition(rx - HP_BAR_W / 2, ry - CFG.WORM_H - 7 - lift);
     this.bar.width = HP_BAR_W * (this.health / CFG.MAX_HEALTH);
 
     if (this.marker.visible) {
       const bob = Math.sin(this.scene.time.now / 220) * 4;
       const dx = this.markerSprited ? 0 : -7;
-      this.marker.setPosition(rx + dx, ry - CFG.WORM_H - 30 + bob);
+      this.marker.setPosition(rx + dx, ry - CFG.WORM_H - 30 - lift + bob);
     }
     this.walking = false;
   }

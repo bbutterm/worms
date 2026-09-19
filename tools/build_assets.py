@@ -141,6 +141,11 @@ def build_markers():
     chute = frames(gen('Misc', 'wcratev.png'), 60, 60)
     save(chute[0].crop(union_box(chute[:1])), 'crate_chute.png')
 
+    # Червяк на парашюте (десант в начале боя). Один кадр: покачивание
+    # делает игра поворотом, а не лентой из 17 кадров
+    para = frames(gen('Worms', 'wparacht.png'), 90, 90)
+    save(para[0].crop(union_box(para)), 'worm_chute.png')
+
     # Прицел: берём один кадр, вращать его не нужно
     for key, src in [('crosshair_0', 'crshairr.png'), ('crosshair_1', 'crshairb.png')]:
         fr = frames(gen('Misc', src), 60, 60)

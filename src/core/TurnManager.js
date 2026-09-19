@@ -251,6 +251,7 @@ export class TurnManager {
 
     switch (this.state) {
       case STATE.AIM: {
+        if (scene.landing?.()) break;   // десант ещё спускается
         const was = Math.ceil(this.timeLeft);
         this.timeLeft = Math.max(0, this.timeLeft - dt);
         // Последние пять секунд тикаем — по разу на секунду

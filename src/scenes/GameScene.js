@@ -405,10 +405,11 @@ export default class GameScene extends Phaser.Scene {
     order.forEach(({ team, idx }, i) => {
       const x = spots[i] ?? this.rng.range(300, CFG.WORLD_W - 300);
       const top = this.terrain.surfaceYAt(x, 0) ?? CFG.GROUND_BASE - 100;
-      const worm = new Worm(this, x, top - 1, team, idx);
-      // Земля под шириной корпуса бывает выше, чем ровно под центром:
-      // без этого боец стоит наполовину в склоне.
-      worm.snapToGround();
+      // Десант: боец появляется над землёй и спускается на парашюте. Высота
+      // из общего генератора — у обоих игроков в сети одинаковая
+      const drop = this.rng.range(CFG.SPAWN_DROP_MIN, CFG.SPAWN_DROP_MAX);
+      const worm = new Worm(this, x, top - 1 - drop, team, idx);
+      worm.deployChute();
       this.worms.push(worm);
     });
   }
@@ -559,6 +560,7 @@ export default class GameScene extends Phaser.Scene {
     const net = this.net;
     if (!net?.connected || this.turn.currentTeam !== net.myTeam) return;
     if (this.turn.state !== STATE.AIM || this.replaying) return;
+    if (this.landing()) return;   // десант каждый сажает сам
     this._moveClock += realDt;
     if (this._moveClock < 0.1) return;
     this._moveClock = 0;
@@ -770,9 +772,15 @@ export default class GameScene extends Phaser.Scene {
   canAct() {
     if (this.turn.state !== STATE.AIM) return false;
     if (this.replaying) return false;         // идёт показ чужого хода
+    if (this.landing()) return false;          // десант ещё в воздухе
     // В сетевой партии ходит только тот, чья команда сейчас на очереди
     if (this.net?.connected && this.net.myTeam !== this.turn.currentTeam) return false;
     return true;
+  }
+
+  /** Кто-то ещё спускается на парашюте: ход не начинается и часы стоят. */
+  landing() {
+    return this.worms.some((w) => w.alive && w.parachuting);
   }
 
   /**

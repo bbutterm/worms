@@ -39,7 +39,7 @@ const menuReady = () => page.waitForFunction(
 );
 const gameReady = () => page.waitForFunction(
   () => window.__WORMS__?.scene.isActive('Game')
-    && window.__WORMS__.scene.getScene('Game').turn?.activeWorm,
+    && window.__WORMS__.scene.getScene('Game').turn?.activeWorm && !window.__WORMS__.scene.getScene('Game').landing(),
   null, { timeout: 40000 },
 );
 

@@ -77,7 +77,7 @@ const [A, B] = pages;
 
 const ready = (p) => p.waitForFunction(
   () => window.__WORMS__?.scene.isActive('Game')
-    && window.__WORMS__.scene.getScene('Game').turn?.activeWorm,
+    && window.__WORMS__.scene.getScene('Game').turn?.activeWorm && !window.__WORMS__.scene.getScene('Game').landing(),
   null, { timeout: 40000 },
 );
 await Promise.all(pages.map(ready));
@@ -128,9 +128,10 @@ const bothNextTurn = (n) => Promise.all(pages.map((p) => p.waitForFunction(
 )));
 
 let a = await info(A), b = await info(B);
-// Порог низкий намеренно: важно не «быстро», а «не придушено». Фоновая
+// Порог низкий намеренно: важно не «быстро», а «не придушено». Два
+// браузера на программном рендере дают 7-10 кадров; фоновая
 // вкладка давала 1-2 кадра в секунду — вот что этот порог ловит.
-check('ни одна сторона не придушена по кадрам', a.fps >= 8 && b.fps >= 8,
+check('ни одна сторона не придушена по кадрам', a.fps >= 5 && b.fps >= 5,
   `${a.fps} / ${b.fps} fps`);
 check('оба клиента спарились', a.myTeam !== null && b.myTeam !== null,
   `${a.myTeam} / ${b.myTeam}`);
