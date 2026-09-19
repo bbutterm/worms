@@ -133,7 +133,14 @@ export class AimController {
   update() {
     this.gfx.clear();
     const w = this.worm;
-    if (!w || !this.scene.canPlayerAct()) {
+    const scene = this.scene;
+    // Ход соперника по сети: его прицел и заряд приходят живьём и рисуются
+    // так же, как свои, — только читать их надо из remote*, а не из ввода
+    if (w && scene.remoteAim && scene.awaitingPeer?.() && scene.turn.state === 'aim') {
+      this._drawButtonAim(scene.remoteCharge);
+      return;
+    }
+    if (!w || !scene.canPlayerAct()) {
       this.info.setVisible(false);
       if (this.crosshair) this.crosshair.setVisible(false);
       return;
@@ -141,11 +148,11 @@ export class AimController {
 
     // Свайп имеет приоритет; иначе показываем прицел кнопочной схемы
     if (this.mode === 'aim') this._drawSwipe();
-    else this._drawButtonAim();
+    else this._drawButtonAim(scene.charging ? scene.charge : 0);
   }
 
   /** Прицел и — во время набора силы — траектория для кнопочной схемы. */
-  _drawButtonAim() {
+  _drawButtonAim(charge) {
     const scene = this.scene;
     const o = this.origin();
     const d = scene.aimDirection();
@@ -159,15 +166,15 @@ export class AimController {
     this.gfx.lineBetween(o.x + d.x * 16, o.y + d.y * 16,
       o.x + d.x * (CFG.AIM_RAY_LEN - 12), o.y + d.y * (CFG.AIM_RAY_LEN - 12));
 
-    if (!scene.charging || scene.charge <= 0) { this.info.setVisible(false); return; }
+    if (!(charge > 0)) { this.info.setVisible(false); return; }
 
-    const speed = scene.charge * CFG.AIM_MAX_POWER;
+    const speed = charge * CFG.AIM_MAX_POWER;
     const sx = o.x + d.x * CFG.MUZZLE_OFFSET;
     const sy = o.y + d.y * CFG.MUZZLE_OFFSET;
     this._drawTrajectory(sx, sy, d.x * speed, d.y * speed, weapon);
 
     const deg = Math.round((scene.aimAngle * 180) / Math.PI);
-    this.info.setText(`${deg}°  ${Math.round(scene.charge * 100)}%`);
+    this.info.setText(`${deg}°  ${Math.round(charge * 100)}%`);
     this.info.setPosition(o.x, o.y - 42);
     this.info.setVisible(true);
   }

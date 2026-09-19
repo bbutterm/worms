@@ -417,7 +417,7 @@ export class Worm {
 
     if (this.sprited) {
       if (!this.grounded) this._setAnim('worm_fall');
-      else if (this.walking) this._setAnim('worm_walk');
+      else if (this.walking || this.scene.time.now < (this.remoteWalkUntil ?? 0)) this._setAnim('worm_walk');
       else this._setAnim('worm_idle');
     }
 

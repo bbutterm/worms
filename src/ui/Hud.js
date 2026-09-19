@@ -502,7 +502,8 @@ export class Hud {
   _updateCharge(scene) {
     const g = this.chargeGfx;
     g.clear();
-    const c = Phaser.Math.Clamp(scene.charge, 0, 1);
+    // Свой заряд или заряд соперника в его ход — дуга одна и та же
+    const c = Phaser.Math.Clamp(Math.max(scene.charge, scene.remoteCharge ?? 0), 0, 1);
     if (c <= 0) return;
     g.lineStyle(7, c > 0.85 ? 0xff6b6b : c > 0.55 ? 0xffa34d : 0xffd166, 1);
     g.beginPath();

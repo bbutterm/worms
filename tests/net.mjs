@@ -147,6 +147,54 @@ check('право хода ровно у одного', rights.filter(Boolean).l
   `A=${rights[0]} B=${rights[1]}`);
 
 // --- три хода по очереди ---
+// --- живой ход: ходьба и прицел соперника видны до выстрела ---
+// Раньше по сети уходил только выстрел, и зритель видел соперника
+// застывшим до самого результата. Теперь позиция, прицел и заряд идут
+// потоком, пока соперник думает.
+{
+  a = await info(A); b = await info(B);
+  const shooter = a.team === a.myTeam ? A : B;
+  const watcher = shooter === A ? B : A;
+  const before = await watcher.evaluate(() => {
+    const s = window.__WORMS__.scene.getScene('Game');
+    const w = s.turn.activeWorm;
+    return { x: Math.round(w.x), aim: s.aimAngle, timeLeft: s.turn.timeLeft };
+  });
+  await shooter.evaluate(() => {
+    const s = window.__WORMS__.scene.getScene('Game');
+    s.hud.setHelp(false);
+    s.moveInput.right = true;
+    s.adjustAim(0.35);
+    // Заряд копится, пока «Огонь» нажат; кнопку держим, выстрел не отпускаем
+    s.moveInput.fire = true;
+    setTimeout(() => { s.moveInput.right = false; }, 700);
+  });
+  await watcher.waitForTimeout(400);
+  const live = await watcher.evaluate(() => {
+    const s = window.__WORMS__.scene.getScene('Game');
+    const w = s.turn.activeWorm;
+    return {
+      x: Math.round(w.x), aim: s.aimAngle, remoteAim: s.remoteAim, remoteCharge: s.remoteCharge,
+      crosshair: Boolean(s.aim.crosshair?.visible), timeLeft: s.turn.timeLeft,
+    };
+  });
+  const shooterNow = await shooter.evaluate(() => {
+    const s = window.__WORMS__.scene.getScene('Game');
+    // Сначала гасим заряд, потом отпускаем кнопку: иначе отпускание — выстрел
+    s.cancelCharge();
+    s.moveInput.fire = false;
+    s.moveInput.right = false;
+    return { x: Math.round(s.turn.activeWorm.x), aim: s.aimAngle };
+  });
+  check('зритель видит, как соперник идёт', live.x !== before.x && Math.abs(live.x - shooterNow.x) < 40,
+    `было ${before.x}, у стрелка ${shooterNow.x}, у зрителя ${live.x}`);
+  check('зритель видит прицел соперника', live.remoteAim && live.crosshair
+    && Math.abs(live.aim - shooterNow.aim) < 0.05, `угол ${live.aim.toFixed(2)} / ${shooterNow.aim.toFixed(2)}`);
+  check('и его заряд', live.remoteCharge > 0, `заряд ${live.remoteCharge}`);
+  check('часы хода у зрителя идут по часам соперника', Number.isFinite(live.timeLeft) && live.timeLeft <= 30);
+  await Promise.all(pages.map((p) => p.waitForTimeout(500)));
+}
+
 for (let round = 1; round <= 3; round++) {
   a = await info(A); b = await info(B);
   const shooter = a.team === a.myTeam ? A : B;

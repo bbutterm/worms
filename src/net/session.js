@@ -1,4 +1,4 @@
-import { captureState, applyState, applyCommand, stateHash } from './protocol.js';
+import { captureState, applyState, applyCommand, applyMove, stateHash } from './protocol.js';
 import { randomId } from './transport.js';
 import { player } from '../platform/player.js';
 import { CFG } from '../config.js';
@@ -100,8 +100,24 @@ export class NetSession {
     });
   }
 
+  /**
+   * Пинг несёт номер хода: если соперник ушёл вперёд, значит его снимок до
+   * нас не дошёл, и надо просить состояние. Просить «по таймеру», как было
+   * раньше, нельзя: пока соперник думает дольше двадцати секунд, каждый
+   * ответ убивал бы снаряд показа, и его выстрел был бы не виден.
+   */
   _ping() {
-    this.transport.send({ type: 'ping' });
+    const t = this.scene.turn;
+    this.transport.send({
+      type: 'ping', turn: t?.turnNumber ?? 0, over: t?.state === 'over',
+    });
+  }
+
+  _onPing(msg) {
+    if (!this.sceneReady || !this.synced) return;
+    const t = this.scene.turn;
+    const behind = msg.turn > t.turnNumber || (msg.over && t.state !== 'over');
+    if (behind) this.requestSync();
   }
 
   _status(text) {
@@ -119,8 +135,9 @@ export class NetSession {
     this.lastPeerSeen = Date.now();
     switch (msg.type) {
       case 'hello': return this._onHello(msg);
-      case 'ping': return undefined;
+      case 'ping': return this._onPing(msg);
       case 'sync': return this._onSync();
+      case 'move': return this._onMove(msg);
       case 'shot': return this._onShot(msg);
       case 'state': return this._onState(msg);
       case 'rematch': return this._onRematch();
@@ -215,6 +232,14 @@ export class NetSession {
     // запрос. Он безвреден: воронки применяются повторно без следа,
     // остальное и так совпадает.
     if (!this.sceneReady) return;   // старая сцена, вот-вот пересоберётся
+    // Когда мы уже в курсе, переприменять полный снимок нельзя: посреди
+    // своего хода он сбросил бы прицел и таймер и убил бы наш снаряд.
+    // Берём его, только если отстали.
+    if (msg.state.full && this.synced) {
+      const t = this.scene.turn;
+      const behind = msg.state.turn > t.turnNumber || (msg.state.over && t.state !== 'over');
+      if (!behind) return;
+    }
     if (msg.state.full) {
       this.scene.explosionHistory = msg.state.explosions.slice();
       this.synced = true;
@@ -287,6 +312,17 @@ export class NetSession {
     this.sceneReady = false;
     this.synced = false;
     this.scene.startNetMatch(this.seed, this.myTeam);
+  }
+
+  _onMove(msg) {
+    if (!this.sceneReady) return;
+    applyMove(this.scene, msg.m);
+  }
+
+  /** Живой ход: позиция, прицел, заряд — раз в сто миллисекунд, если менялось. */
+  sendMove(m) {
+    if (!this.paired || !m) return;
+    this.transport.send({ type: 'move', m });
   }
 
   /** Вызывается сценой при выстреле локального игрока. */

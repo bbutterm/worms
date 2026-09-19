@@ -57,8 +57,63 @@ export function applyCommand(scene, cmd) {
   scene.turn.weaponIndex = cmd.weapon;
   scene.hud.setWeaponIndex(cmd.weapon);
 
+  scene.remoteAim = false;
+  scene.remoteCharge = 0;
   scene.replaying = true;
   scene.fireActiveWorm(cmd.vx, cmd.vy);
+  return true;
+}
+
+/**
+ * Живой ход: где сейчас боец соперника, куда он целится и сколько набрал.
+ *
+ * Без этого зритель видел бы соперника застывшим до самого выстрела, а
+ * потом сразу результат — «ходы отображаются, когда кончаются». Здесь
+ * ничего авторитетного нет: позиция и прицел только рисуются, итог хода
+ * всё равно принесёт снимок. Поэтому применяем, лишь пока у нас тот же ход
+ * и мы действительно ждём соперника: опоздавшее движение из прошлого хода
+ * или движение во время показа выстрела дёрнуло бы бойца не туда.
+ */
+export function captureMove(scene) {
+  const w = scene.turn.activeWorm;
+  if (!w) return null;
+  return {
+    turn: scene.turn.turnNumber,
+    worm: scene.worms.indexOf(w),
+    x: Math.round(w.x),
+    y: Math.round(w.y),
+    facing: w.facing,
+    aim: Math.round(scene.aimAngle * 1000) / 1000,
+    charge: scene.charging ? Math.round(scene.charge * 100) / 100 : 0,
+    weapon: scene.turn.weaponIndex,
+    timeLeft: Math.round(scene.turn.timeLeft),
+  };
+}
+
+export function applyMove(scene, m) {
+  const t = scene.turn;
+  if (!m || m.turn !== t.turnNumber || t.state !== 'aim') return false;
+  const w = scene.worms[m.worm];
+  if (!w || !w.alive || t.currentTeam !== w.team) return false;
+  if (!scene.awaitingPeer?.()) return false;
+
+  if (w.x !== m.x || w.y !== m.y) w.remoteWalkUntil = scene.time.now + 180;
+  w.x = m.x;
+  w.y = m.y;
+  w.facing = m.facing;
+  w.vx = 0;
+  w.vy = 0;
+  w.grounded = w.supported(w.x, w.y);
+
+  scene.aimAngle = m.aim;
+  scene.remoteAim = true;
+  scene.remoteCharge = m.charge ?? 0;
+  if (m.weapon !== undefined && m.weapon !== t.weaponIndex) {
+    t.weaponIndex = m.weapon;
+    scene.hud.setWeaponIndex(m.weapon);
+  }
+  // Часы хода — его, а не наши: у зрителя таймер иначе застывал бы на нуле
+  if (Number.isFinite(m.timeLeft)) t.timeLeft = m.timeLeft;
   return true;
 }
 

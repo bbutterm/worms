@@ -12,7 +12,7 @@ import { Fx } from '../ui/Fx.js';
 import { AimController } from '../ui/AimController.js';
 import { font, UI, ensureButton } from '../ui/theme.js';
 import { WEAPONS } from '../weapons/index.js';
-import { captureCommand } from '../net/protocol.js';
+import { captureCommand, captureMove } from '../net/protocol.js';
 import { NetSession } from '../net/session.js';
 import { knock } from '../net/lobby.js';
 import { randomRoom, copyText } from '../net/transport.js';
@@ -63,6 +63,11 @@ export default class GameScene extends Phaser.Scene {
     this.aimAngle = CFG.AIM_ANGLE_START;
     this.charging = false;
     this.charge = 0;
+    // Прицел и заряд соперника в его ход — только картинка
+    this.remoteAim = false;
+    this.remoteCharge = 0;
+    this._moveClock = 0;
+    this._lastMove = '';
     this._lastNow = 0;   // отметка системных часов для realDt
     this.gameOverUi = null;
 
@@ -497,6 +502,7 @@ export default class GameScene extends Phaser.Scene {
     // часах, иначе доворот ствола шёл бы в разы медленнее задуманного.
     if (this.isBotTurn()) this.botFor(this.turn.currentTeam).update(realDt);
     this._tickCharge(realDt);
+    this._streamMove(realDt);
 
     for (const w of this.worms) w.update(dt);
 
@@ -543,19 +549,35 @@ export default class GameScene extends Phaser.Scene {
   }
 
   /**
-   * Ждать ли ход соперника дальше. Ждём всегда — за него не играем: раньше
-   * через NET_WAIT клиент продолжал один, и партии расходились навсегда.
-   * Если он в сети, но ход не приходит, сообщение могло потеряться —
-   * просим состояние заново. Если его нет NET_GONE секунд — партия наша.
+   * Свой ход — сопернику вживую: где боец, куда целится, сколько набрал.
+   * Раз в сто миллисекунд и только если что-то поменялось; иначе зритель
+   * видел бы соперника застывшим до самого выстрела.
    */
-  holdForPeer(waited) {
+  _streamMove(realDt) {
+    const net = this.net;
+    if (!net?.connected || this.turn.currentTeam !== net.myTeam) return;
+    if (this.turn.state !== STATE.AIM || this.replaying) return;
+    this._moveClock += realDt;
+    if (this._moveClock < 0.1) return;
+    this._moveClock = 0;
+    const m = captureMove(this);
+    if (!m) return;
+    const key = JSON.stringify(m);
+    if (key === this._lastMove) return;
+    this._lastMove = key;
+    net.sendMove(m);
+  }
+
+  /**
+   * Ждать ли ход соперника дальше. Ждём всегда — за него не играем: раньше
+   * через двадцать секунд клиент продолжал один, и партии расходились
+   * навсегда. Потерянный снимок ловится по номеру хода в пинге, а не по
+   * таймеру. Если соперника нет NET_GONE секунд — партия наша.
+   */
+  holdForPeer() {
     const net = this.net;
     if (!net?.connected) return false;
-    if (net.peerLost) {
-      if (net.peerSilence >= CFG.NET_GONE) { this.onPeerGone(); return false; }
-      return true;
-    }
-    if (waited >= CFG.NET_WAIT) net.requestSync();
+    if (net.peerLost && net.peerSilence >= CFG.NET_GONE) { this.onPeerGone(); return false; }
     return true;
   }
 
@@ -655,6 +677,9 @@ export default class GameScene extends Phaser.Scene {
   resetAim() {
     this.aimAngle = CFG.AIM_ANGLE_START;
     this.cancelCharge();
+    this.remoteAim = false;
+    this.remoteCharge = 0;
+    this._lastMove = '';
   }
 
   _updateCamera(dt, realDt) {

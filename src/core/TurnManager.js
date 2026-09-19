@@ -175,7 +175,7 @@ export class TurnManager {
   _holding(dt) {
     if (!this.scene.awaitingPeer?.()) { this.holdTimer = 0; return false; }
     this.holdTimer = (this.holdTimer ?? 0) + dt;
-    return this.scene.holdForPeer?.(this.holdTimer) ?? this.holdTimer < CFG.NET_WAIT;
+    return this.scene.holdForPeer?.(this.holdTimer) ?? true;
   }
 
   /** Следующий живой боец команды по кругу. */
