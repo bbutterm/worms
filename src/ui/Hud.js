@@ -37,9 +37,11 @@ export class Hud {
     // Инвентарь создаётся до плашки оружия: она его открывает
     this.inventory = new Inventory(scene);
     this._buildTopBar(W);
-    this._buildWeapons(W, H);
+    // Оружие — после служебных кнопок: на узком экране плашка уступает
+    // им место, а для этого надо знать, где они кончились
     this._buildControls(W, H);
     this._buildHelp(W, H);
+    this._buildWeapons(W, H);
 
     scene.input.on('pointerup', this._releaseAll, this);
     scene.input.on('pointerupoutside', this._releaseAll, this);
@@ -124,9 +126,10 @@ export class Hud {
    */
   _buildWeapons(W, H) {
     const s = this.scene;
-    const bw = 214, bh = 58;
-    const bx = Math.round((W - bw) / 2);
-    const by = H - bh - 12;
+    const bw = 278, bh = 75;
+    // По центру, но не поверх служебных кнопок: на 16:9 им тесно
+    const bx = Math.max(Math.round((W - bw) / 2), (this.serviceEnd ?? 0) + 16);
+    const by = H - bh - 14;
 
     ensureButton(s, 'ui-weapon-slot', bw, bh, 'active');
     const plate = this.fix(s.add.image(bx + bw / 2, by + bh / 2, 'ui-weapon-slot'));
@@ -135,12 +138,12 @@ export class Hud {
 
     this.slot = {
       plate,
-      icon: this.fix(s.add.image(bx + 32, by + bh / 2, 'icon_bazooka')
-        .setOrigin(0.5), DEPTH.HUD + 1),
-      name: this.fix(s.add.text(bx + 60, by + 12, '', font(16, 800, '#2a1c06')), DEPTH.HUD + 1),
-      ammo: this.fix(s.add.text(bx + 60, by + 33, '', font(12, 700, '#5a4413')), DEPTH.HUD + 1),
-      hint: this.fix(s.add.text(bx + bw - 10, by + 8, 'арсенал',
-        font(10, 700, '#5a4413')).setOrigin(1, 0), DEPTH.HUD + 1),
+      icon: this.fix(s.add.image(bx + 42, by + bh / 2, 'icon_bazooka')
+        .setOrigin(0.5).setScale(1.3), DEPTH.HUD + 1),
+      name: this.fix(s.add.text(bx + 78, by + 15, '', font(20, 800, '#2a1c06')), DEPTH.HUD + 1),
+      ammo: this.fix(s.add.text(bx + 78, by + 43, '', font(15, 700, '#5a4413')), DEPTH.HUD + 1),
+      hint: this.fix(s.add.text(bx + bw - 12, by + 10, 'арсенал',
+        font(12, 700, '#5a4413')).setOrigin(1, 0), DEPTH.HUD + 1),
       x: bx, y: by, w: bw, h: bh,
     };
     this.uiRects.push({ x: bx, y: by, w: bw, h: bh });
@@ -150,11 +153,14 @@ export class Hud {
 
   _buildControls(W, H) {
     const s = this.scene;
-    const B = 62;         // сторона квадратной кнопки
-    const FR = 54;        // радиус «Огня»
-    const gap = 10;
+    // Размеры под палец на телефоне: были 62/54/38, стали на 40% больше —
+    // на iPhone в ландшафте логический пиксель это ~0.5 CSS-пикселя, и
+    // квадрат 62 выходил 31 pt, меньше рекомендуемых 44
+    const B = 87;         // сторона квадратной кнопки
+    const FR = 76;        // радиус «Огня»
+    const gap = 14;
 
-    const JR = 38;        // радиус «Прыжка»
+    const JR = 53;        // радиус «Прыжка»
 
     // Левая рука — прицел и ходьба: угол крутится левым большим пальцем,
     // а правый в это время держит «Огонь» и не мешает.
@@ -273,7 +279,7 @@ export class Hud {
     const img = this.fix(s.add.image(cx, cy, 'ui-fire'));
     img.setInteractive(new Phaser.Geom.Circle(img.width / 2, img.height / 2, r),
       Phaser.Geom.Circle.Contains);
-    this.fix(s.add.text(cx, cy, 'ОГОНЬ', font(16, 800)).setOrigin(0.5), DEPTH.HUD + 1);
+    this.fix(s.add.text(cx, cy, 'ОГОНЬ', font(22, 800)).setOrigin(0.5), DEPTH.HUD + 1);
 
     this._register(img,
       () => { s.moveInput.fire = true; },
@@ -303,9 +309,10 @@ export class Hud {
     // Редкие кнопки собраны в одну полосу между блоком ходьбы и панелью
     // оружия: маленькие, одинаковые, под большой палец не просятся.
     // Полоса начинается за колонкой прицела и обязана кончиться до оружия.
-    const SB = 44, step = 50;
-    let sx = 244;
-    const service = (icon, onTap) => { this._tap(sx, H - 60, SB, icon, onTap); sx += step; };
+    const SB = 62, step = 70;
+    let sx = 328;   // за колонкой прицела: 24 + 3·87 + 2·14 + 16
+    const sy = H - SB - 16;
+    const service = (icon, onTap) => { this._tap(sx, sy, SB, icon, onTap); sx += step; };
 
     service('help', () => this.toggleHelp());
     service('home', () => s.toMenu());
@@ -319,10 +326,11 @@ export class Hud {
     // Приглашение по ссылке нужно только в сетевой партии: в кампании эта
     // кнопка молча бросала бы миссию
     if (s.match?.mode === 'online') service('link', () => s.shareInvite());
+    this.serviceEnd = sx - step + SB;
 
     // Строка сетевого статуса живёт над этими кнопками и в локальной
     // партии пуста — обычной игре она не мешает
-    this.netText = this.fix(s.add.text(244, H - 68, '', font(12, 800, UI.accent))
+    this.netText = this.fix(s.add.text(328, sy - 8, '', font(13, 800, UI.accent))
       .setOrigin(0, 1), DEPTH.HUD + 1);
 
     const lines = [
